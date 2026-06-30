@@ -1,0 +1,132 @@
+name: Deploy Open WebUI Theme to VPS
+
+on:
+  # Enable push deploy after repository secrets are set and ai.panyakorn.com DNS resolves.
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-open-webui-theme
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_NAME: open-webui-theme
+      IMAGE_TAG: ${{ github.sha }}
+      IMAGE_TAR: open-webui-theme.tar
+      PUBLIC_DOMAIN: ai.panyakorn.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build Docker image tar
+        run: |
+          set -euo pipefail
+          docker build \
+            --platform linux/amd64 \
+            -t "$IMAGE_NAME:$IMAGE_TAG" \
+            -t "$IMAGE_NAME:latest" \
+            .
+          docker save "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest" -o "$IMAGE_TAR"
+
+      - name: Upload image tar to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VPS_HOST:-}" ] || [ -z "${VPS_USER:-}" ] || [ -z "${VPS_SSH_KEY:-}" ]; then
+            echo "Missing VPS_HOST, VPS_USER, or VPS_SSH_KEY secret for this repository."
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+
+          tar -cf - "$IMAGE_TAR" | ssh \
+            -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=120 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            "$VPS_USER@$VPS_HOST" \
+            'set -euo pipefail; mkdir -p /tmp/open-webui-theme-upload; rm -f /tmp/open-webui-theme-upload/open-webui-theme.tar; tar -xf - -C /tmp/open-webui-theme-upload'
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            cd /opt/apps
+
+            ts="$(date +%Y%m%d-%H%M%S)"
+            test -f docker-compose.yml
+            test -f caddy/Caddyfile
+            cp docker-compose.yml "docker-compose.yml.bak.open-webui-theme.${ts}"
+            cp caddy/Caddyfile "caddy/Caddyfile.bak.open-webui-theme.${ts}"
+
+            cat > docker-compose.open-webui-theme.yml <<'YAML'
+            services:
+              open-webui-theme:
+                image: open-webui-theme:latest
+                container_name: open-webui-theme
+                restart: unless-stopped
+                expose:
+                  - "3000"
+            YAML
+
+            if ! grep -q '^ai\.panyakorn\.com[[:space:]]*{' caddy/Caddyfile; then
+              cat >> caddy/Caddyfile <<'CADDY'
+
+            ai.panyakorn.com {
+              reverse_proxy open-webui-theme:3000
+            }
+            CADDY
+            fi
+
+            docker load -i /tmp/open-webui-theme-upload/open-webui-theme.tar
+            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml config >/dev/null
+            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml up -d open-webui-theme caddy
+            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml ps open-webui-theme caddy
+            docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null
+
+      - name: Verify public domain
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSI --max-time 20 "https://${PUBLIC_DOMAIN}" >/tmp/headers.txt; then
+              cat /tmp/headers.txt
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN}"
+          exit 1
