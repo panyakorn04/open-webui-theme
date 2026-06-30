@@ -149,6 +149,7 @@ jobs:
             docker load -i /tmp/open-webui-theme-upload/open-webui-theme.tar
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml config >/dev/null
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml up -d open-webui-theme caddy
+            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml restart caddy
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml ps open-webui-theme caddy
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
               if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
