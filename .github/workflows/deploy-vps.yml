@@ -21,7 +21,7 @@ jobs:
       IMAGE_TAG: ${{ github.sha }}
       IMAGE_TAR: open-webui-theme.tar
       PUBLIC_DOMAIN: ai.panyakorn.com
-      NEXT_PUBLIC_API_URL: https://api.panyakorn.com
+      NEXT_PUBLIC_API_URL: ""
 
     steps:
       - name: Checkout repository
@@ -104,19 +104,47 @@ jobs:
                 container_name: open-webui-theme
                 restart: unless-stopped
                 environment:
-                  NEXT_PUBLIC_API_URL: https://api.panyakorn.com
+                  NEXT_PUBLIC_API_URL: ""
                 expose:
                   - "3000"
             YAML
 
-            if ! grep -q '^ai\.panyakorn\.com[[:space:]]*{' caddy/Caddyfile; then
-              cat >> caddy/Caddyfile <<'CADDY'
+            python3 - <<'PY'
+            from pathlib import Path
 
-            ai.panyakorn.com {
-              reverse_proxy open-webui-theme:3000
+            path = Path('caddy/Caddyfile')
+            text = path.read_text()
+            block = '''ai.panyakorn.com {
+              handle /api/* {
+                reverse_proxy backend:8888
+              }
+
+              handle {
+                reverse_proxy open-webui-theme:3000
+              }
             }
-            CADDY
-            fi
+            '''
+            marker = 'ai.panyakorn.com {'
+            start = text.find(marker)
+            if start == -1:
+                text = text.rstrip() + '\n\n' + block
+            else:
+                depth = 0
+                end = None
+                for index in range(start, len(text)):
+                    char = text[index]
+                    if char == '{':
+                        depth += 1
+                    elif char == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = index + 1
+                            break
+                if end is None:
+                    raise SystemExit('Could not parse ai.panyakorn.com Caddy block')
+                text = text[:start] + block.rstrip() + text[end:]
+            path.write_text(text)
+            PY
 
             docker load -i /tmp/open-webui-theme-upload/open-webui-theme.tar
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml config >/dev/null

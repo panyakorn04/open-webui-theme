@@ -26,10 +26,10 @@ Open:
 http://localhost:3000
 ```
 
-By default the UI calls:
+By default the production UI calls the same-origin Caddy proxy:
 
 ```text
-https://api.panyakorn.com/api/ai/chat
+/api/ai/chat
 ```
 
 Override for local backend testing:
@@ -42,7 +42,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8888 pnpm dev
 
 ```bash
 pnpm lint
-NEXT_PUBLIC_API_URL=https://api.panyakorn.com pnpm build
+NEXT_PUBLIC_API_URL= pnpm build
 ```
 
 ## Current scope
@@ -65,7 +65,7 @@ Not included yet:
 Current production stack:
 
 ```text
-ai.panyakorn.com -> https://api.panyakorn.com/api/ai/chat -> http://ollama:11434 -> panyakorn-local:latest
+ai.panyakorn.com/api/* -> backend:8888 -> http://ollama:11434 -> panyakorn-local:latest
 ```
 
 Production domain:

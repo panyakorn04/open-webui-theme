@@ -17,7 +17,7 @@ const quickPrompts = [
   "ช่วยเขียน n8n prompt สำหรับ highlight",
 ];
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://api.panyakorn.com";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 const aiModel = "panyakorn-local:latest";
 
 type ChatRole = "assistant" | "user";
@@ -47,6 +47,11 @@ type ApiChatResponse = {
     message?: string;
   };
 };
+
+function apiUrl(path: string) {
+  if (!apiBaseUrl) return path;
+  return `${apiBaseUrl.replace(/\/$/, "")}${path}`;
+}
 
 const initialMessages: ChatMessage[] = [
   {
@@ -98,7 +103,7 @@ export default function Home() {
           content: message.content,
         }));
 
-      const response = await fetch(`${apiBaseUrl}/api/ai/chat`, {
+      const response = await fetch(apiUrl("/api/ai/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history }),
@@ -192,7 +197,7 @@ export default function Home() {
 
         <div className="hero-strip">
           <div>
-            <span className="terminal-label">{apiBaseUrl}/api/ai/chat</span>
+            <span className="terminal-label">{apiUrl("/api/ai/chat")}</span>
             <h3>Private AI workspace for coding, automation, and VPS operations.</h3>
           </div>
           <div className="signal-card">
@@ -271,7 +276,7 @@ export default function Home() {
 
         <section className="glass-card terminal-card">
           <p className="section-label">Runtime</p>
-          <code>NEXT_PUBLIC_API_URL={apiBaseUrl}</code>
+          <code>NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}</code>
           <code>BACKEND_MODEL={aiModel}</code>
           <code>OLLAMA_URL=internal://ollama:11434</code>
         </section>
