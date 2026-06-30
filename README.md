@@ -1,8 +1,6 @@
 # Open WebUI Theme
 
-A standalone UI shell for Panyakorn's future Open WebUI experience, inspired by the current `panyakorn.com` dark emerald terminal theme.
-
-This repo intentionally does not connect to Open WebUI, Ollama, or any backend API yet. It is a visual/theme foundation only.
+A standalone AI console for Panyakorn's VPS-hosted Ollama stack, inspired by the current `panyakorn.com` dark emerald terminal theme.
 
 ## Goals
 
@@ -13,7 +11,7 @@ This repo intentionally does not connect to Open WebUI, Ollama, or any backend A
   - soft green accent glow
   - clean developer-dashboard layout
 - Prototype an Open WebUI-style chat interface.
-- Keep API integration out of scope until the design shell is approved.
+- Connect the composer to `portfolio-backend-2026` at `/api/ai/chat`.
 
 ## Local development
 
@@ -28,40 +26,49 @@ Open:
 http://localhost:3000
 ```
 
+By default the UI calls:
+
+```text
+https://api.panyakorn.com/api/ai/chat
+```
+
+Override for local backend testing:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8888 pnpm dev
+```
+
 ## Verification
 
 ```bash
 pnpm lint
-pnpm build
+NEXT_PUBLIC_API_URL=https://api.panyakorn.com pnpm build
 ```
 
 ## Current scope
 
 Included:
-- static chat UI shell
+- live chat UI calling `NEXT_PUBLIC_API_URL/api/ai/chat`
 - sidebar navigation
-- model selector mock
+- model/status panel
 - skills/context panel mock
-- prompt composer mock
+- prompt composer
 - responsive layout
 
 Not included yet:
-- Open WebUI API integration
-- Ollama API integration
 - authentication
 - persistence
 - real chat streaming
-- deployment workflow
 
-## Future integration notes
+## Production integration
 
-Expected eventual internal Open WebUI/Ollama stack:
+Current production stack:
 
 ```text
-Open WebUI -> http://ollama:11434 -> panyakorn-glm:latest
+ai.panyakorn.com -> https://api.panyakorn.com/api/ai/chat -> http://ollama:11434 -> panyakorn-local:latest
 ```
 
-The production domain may be something like:
+Production domain:
 
 ```text
 https://ai.panyakorn.com

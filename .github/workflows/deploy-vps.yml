@@ -21,6 +21,7 @@ jobs:
       IMAGE_TAG: ${{ github.sha }}
       IMAGE_TAR: open-webui-theme.tar
       PUBLIC_DOMAIN: ai.panyakorn.com
+      NEXT_PUBLIC_API_URL: https://api.panyakorn.com
 
     steps:
       - name: Checkout repository
@@ -36,6 +37,8 @@ jobs:
         run: pnpm lint
 
       - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
         run: pnpm build
 
       - name: Build Docker image tar
@@ -43,6 +46,7 @@ jobs:
           set -euo pipefail
           docker build \
             --platform linux/amd64 \
+            --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
             -t "$IMAGE_NAME:$IMAGE_TAG" \
             -t "$IMAGE_NAME:latest" \
             .
@@ -99,6 +103,8 @@ jobs:
                 image: open-webui-theme:latest
                 container_name: open-webui-theme
                 restart: unless-stopped
+                environment:
+                  NEXT_PUBLIC_API_URL: https://api.panyakorn.com
                 expose:
                   - "3000"
             YAML

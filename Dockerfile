@@ -11,6 +11,8 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 RUN corepack enable
+ARG NEXT_PUBLIC_API_URL=https://api.panyakorn.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build

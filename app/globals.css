@@ -31,6 +31,7 @@ body {
 }
 button, textarea { font: inherit; }
 button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.62; }
 ::selection { background: oklch(0.86 0.18 155 / 0.24); }
 
 .app-shell {
