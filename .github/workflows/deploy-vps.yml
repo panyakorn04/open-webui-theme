@@ -118,9 +118,15 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml ps open-webui-theme caddy
             docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null
 
-      - name: Verify public domain
+      - name: Verify public domain if DNS is ready
         run: |
           set -euo pipefail
+          if ! getent hosts "${PUBLIC_DOMAIN}" >/dev/null; then
+            echo "DNS for ${PUBLIC_DOMAIN} is not ready yet; VPS service was deployed and Caddy route was added."
+            echo "Add an A record: ai -> 76.13.185.117, then rerun this workflow or curl https://${PUBLIC_DOMAIN}."
+            exit 0
+          fi
+
           for attempt in 1 2 3 4 5; do
             if curl -fsSI --max-time 20 "https://${PUBLIC_DOMAIN}" >/tmp/headers.txt; then
               cat /tmp/headers.txt
@@ -128,5 +134,5 @@ jobs:
             fi
             sleep 15
           done
-          echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN}"
+          echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN} even though DNS resolves."
           exit 1
