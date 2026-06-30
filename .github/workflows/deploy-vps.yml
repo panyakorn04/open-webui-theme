@@ -116,7 +116,19 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml config >/dev/null
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml up -d open-webui-theme caddy
             docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml ps open-webui-theme caddy
-            docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
+                echo "open-webui-theme is reachable from caddy"
+                exit 0
+              fi
+              echo "Waiting for open-webui-theme to become ready... attempt ${attempt}/10"
+              docker logs --tail=20 open-webui-theme || true
+              sleep 3
+            done
+
+            echo "open-webui-theme did not become reachable from caddy"
+            docker logs --tail=100 open-webui-theme || true
+            exit 1
 
       - name: Verify public domain if DNS is ready
         run: |
