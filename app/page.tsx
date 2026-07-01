@@ -11,13 +11,6 @@ import {
 import { useChat, type UIMessage } from "@tanstack/ai-react";
 import { aiModel, apiUrl, backendChatFetcher } from "../lib/backend-chat-fetcher";
 
-const conversations = [
-    { label: "Deploy Frontend to VPS", active: false },
-    { label: "YouTube Highlight Workflow", active: false },
-    { label: "AI Backend Chat", active: true },
-    { label: "Portfolio API Integration", active: false },
-];
-
 const skills = [
     "portfolio-2026",
     "vps-ai-services",
@@ -31,6 +24,7 @@ const quickPrompts = [
 ];
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
+const chatSessionsStorageKey = "panyakorn-ai-chat-sessions:v1";
 
 const initialMessages: UIMessage[] = [
     {
@@ -46,6 +40,32 @@ const initialMessages: UIMessage[] = [
     },
 ];
 
+type ChatSession = {
+    id: string;
+    title: string;
+    messages: UIMessage[];
+    createdAt: number;
+    updatedAt: number;
+};
+
+function newSessionId() {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+        return crypto.randomUUID();
+    }
+    return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createChatSession(title = "New chat"): ChatSession {
+    const now = Date.now();
+    return {
+        id: newSessionId(),
+        title,
+        messages: initialMessages,
+        createdAt: now,
+        updatedAt: now,
+    };
+}
+
 function messageText(message: UIMessage) {
     return message.parts
         .filter((part) => part.type === "text")
@@ -56,6 +76,41 @@ function messageText(message: UIMessage) {
 function messageMeta(message: UIMessage) {
     if (message.id === "welcome") return "Panyakorn AI";
     return message.role === "assistant" ? aiModel : "You";
+}
+
+function sessionTitleFromMessages(messages: UIMessage[]) {
+    const firstUserMessage = messages.find((message) => message.role === "user");
+    const text = firstUserMessage ? messageText(firstUserMessage).trim() : "";
+    if (!text) return "New chat";
+    return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+function readStoredSessions() {
+    if (typeof window === "undefined") return null;
+
+    try {
+        const raw = window.localStorage.getItem(chatSessionsStorageKey);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as {
+            activeSessionId?: string;
+            sessions?: ChatSession[];
+        };
+        const sessions = parsed.sessions?.filter(
+            (session) =>
+                typeof session.id === "string" &&
+                typeof session.title === "string" &&
+                Array.isArray(session.messages),
+        );
+
+        if (!sessions?.length) return null;
+        return {
+            activeSessionId: parsed.activeSessionId ?? sessions[0].id,
+            sessions,
+        };
+    } catch {
+        return null;
+    }
 }
 
 /* ── SVG Icons ─────────────────────────────────────── */
@@ -96,20 +151,83 @@ function IconArrowUp() {
 
 /* ── Component ─────────────────────────────────────── */
 export default function Home() {
+    const defaultSessionRef = useRef<ChatSession>(createChatSession());
     const [prompt, setPrompt] = useState("");
-    const { clear, error, isLoading, messages, sendMessage, setMessages } =
-        useChat({
-            fetcher: backendChatFetcher,
-            initialMessages,
-            devtools: { name: "Panyakorn AI Console" },
-        });
+    const [sessions, setSessions] = useState<ChatSession[]>([
+        defaultSessionRef.current,
+    ]);
+    const [activeSessionId, setActiveSessionId] = useState(
+        defaultSessionRef.current.id,
+    );
+    const hasLoadedStoredSessionsRef = useRef(false);
+    const { error, isLoading, messages, sendMessage, setMessages } = useChat({
+        fetcher: backendChatFetcher,
+        initialMessages,
+        devtools: { name: "Panyakorn AI Console" },
+    });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const stored = readStoredSessions();
+        if (stored) {
+            const activeSession =
+                stored.sessions.find(
+                    (session) => session.id === stored.activeSessionId,
+                ) ?? stored.sessions[0];
+
+            setSessions(stored.sessions);
+            setActiveSessionId(activeSession.id);
+            setMessages(activeSession.messages);
+        }
+
+        hasLoadedStoredSessionsRef.current = true;
+    }, [setMessages]);
+
+    useEffect(() => {
+        if (!hasLoadedStoredSessionsRef.current) return;
+
+        try {
+            window.localStorage.setItem(
+                chatSessionsStorageKey,
+                JSON.stringify({ activeSessionId, sessions }),
+            );
+        } catch {
+            // Ignore storage failures so chat remains usable in private mode/quota limits.
+        }
+    }, [activeSessionId, sessions]);
+
+    useEffect(() => {
+        if (!hasLoadedStoredSessionsRef.current) return;
+
+        setSessions((currentSessions) =>
+            currentSessions.map((session) => {
+                if (session.id !== activeSessionId) return session;
+
+                return {
+                    ...session,
+                    title: sessionTitleFromMessages(messages),
+                    messages,
+                    updatedAt: Date.now(),
+                };
+            }),
+        );
+    }, [activeSessionId, messages]);
 
     /* Auto-scroll to bottom after every render that changes the message list */
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
+
+    const activeSession = useMemo(
+        () => sessions.find((session) => session.id === activeSessionId),
+        [activeSessionId, sessions],
+    );
+
+    const sortedSessions = useMemo(
+        () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+        [sessions],
+    );
 
     const statusLabel = useMemo(() => {
         if (isLoading) return "Thinking…";
@@ -137,9 +255,21 @@ export default function Home() {
         }
     }
 
-    function resetChat() {
-        clear();
-        setMessages(initialMessages);
+    function startNewChat() {
+        if (isLoading) return;
+
+        const nextSession = createChatSession();
+        setSessions((currentSessions) => [nextSession, ...currentSessions]);
+        setActiveSessionId(nextSession.id);
+        setMessages(nextSession.messages);
+        setPrompt("");
+    }
+
+    function openSession(session: ChatSession) {
+        if (isLoading || session.id === activeSessionId) return;
+
+        setActiveSessionId(session.id);
+        setMessages(session.messages);
         setPrompt("");
     }
 
@@ -166,7 +296,8 @@ export default function Home() {
                     <button
                         className="new-chat"
                         type="button"
-                        onClick={resetChat}
+                        onClick={startNewChat}
+                        disabled={isLoading}
                     >
                         <IconPlus />
                         New chat
@@ -179,26 +310,35 @@ export default function Home() {
                     >
                         <p className="section-label">Recent</p>
                         <div className="conversation-list">
-                            {conversations.map(({ label, active }) => (
-                                <button
-                                    key={label}
-                                    className={
-                                        active
-                                            ? "conversation active"
-                                            : "conversation"
-                                    }
-                                    type="button"
-                                    aria-current={active ? "page" : undefined}
-                                >
-                                    <span
+                            {sortedSessions.map((session) => {
+                                const active = session.id === activeSessionId;
+
+                                return (
+                                    <button
+                                        key={session.id}
                                         className={
-                                            active ? "dot" : "dot dot-dim"
+                                            active
+                                                ? "conversation active"
+                                                : "conversation"
                                         }
-                                        aria-hidden="true"
-                                    />
-                                    {label}
-                                </button>
-                            ))}
+                                        type="button"
+                                        aria-current={
+                                            active ? "page" : undefined
+                                        }
+                                        disabled={isLoading && !active}
+                                        title={session.title}
+                                        onClick={() => openSession(session)}
+                                    >
+                                        <span
+                                            className={
+                                                active ? "dot" : "dot dot-dim"
+                                            }
+                                            aria-hidden="true"
+                                        />
+                                        {session.title}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </nav>
 
@@ -221,7 +361,7 @@ export default function Home() {
                     <header className="topbar">
                         <div className="topbar-title">
                             <p className="eyebrow">Backend API Connected</p>
-                            <h2>Workspace ที่คุยกับ Ollama บน VPS ได้จริง</h2>
+                            <h2>{activeSession?.title ?? "New chat"}</h2>
                         </div>
                         <div
                             className="topbar-actions"
@@ -244,7 +384,7 @@ export default function Home() {
                     <div className="hero-strip">
                         <div>
                             <span className="terminal-label">
-                                {apiUrl("/api/ai/chat")}
+                                {apiUrl("/api/ai/chat/stream")}
                             </span>
                             <h3>
                                 Private AI workspace for coding, automation
@@ -440,6 +580,7 @@ export default function Home() {
                             NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}
                         </code>
                         <code>AI_CLIENT=TanStack AI SSE stream</code>
+                        <code>CHAT_SESSIONS=localStorage</code>
                         <code>BACKEND_MODEL={aiModel}</code>
                         <code>OLLAMA_URL=internal://ollama:11434</code>
                     </section>

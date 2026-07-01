@@ -49,6 +49,7 @@ NEXT_PUBLIC_API_URL= pnpm build
 
 Included:
 - live chat UI using TanStack AI React state with a custom backend SSE fetcher calling `NEXT_PUBLIC_API_URL/api/ai/chat/stream`
+- local chat sessions/recents persisted in `localStorage`, with New chat creating a fresh session
 - sidebar navigation
 - model/status panel
 - skills/context panel mock
