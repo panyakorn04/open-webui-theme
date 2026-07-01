@@ -99,11 +99,16 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let readerDone = false;
+  let streamCompleted = false;
 
   try {
     while (!signal.aborted) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        readerDone = true;
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const events = buffer.split("\n\n");
@@ -111,14 +116,29 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
 
       for (const event of events) {
         const chunk = parseSSEEvent(event);
-        if (chunk) yield chunk;
+        if (!chunk) continue;
+        streamCompleted ||= chunk.type === EventType.RUN_FINISHED || chunk.type === EventType.RUN_ERROR;
+        yield chunk;
       }
     }
 
+    if (signal.aborted) return;
+
     buffer += decoder.decode();
-    const chunk = parseSSEEvent(buffer);
-    if (chunk) yield chunk;
+    if (buffer.trim() !== "") {
+      throw new Error("AI stream ended before completing an SSE event.");
+    }
+    if (!streamCompleted) {
+      throw new Error("AI stream ended before a completion event.");
+    }
   } finally {
+    if (!readerDone && !signal.aborted) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream may already be closed; release the reader below either way.
+      }
+    }
     reader.releaseLock();
   }
 }
