@@ -439,7 +439,7 @@ export default function Home() {
                         <code>
                             NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}
                         </code>
-                        <code>AI_CLIENT=TanStack AI fetcher</code>
+                        <code>AI_CLIENT=TanStack AI SSE stream</code>
                         <code>BACKEND_MODEL={aiModel}</code>
                         <code>OLLAMA_URL=internal://ollama:11434</code>
                     </section>

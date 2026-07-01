@@ -48,7 +48,7 @@ NEXT_PUBLIC_API_URL= pnpm build
 ## Current scope
 
 Included:
-- live chat UI using TanStack AI React state with a custom backend fetcher calling `NEXT_PUBLIC_API_URL/api/ai/chat`
+- live chat UI using TanStack AI React state with a custom backend SSE fetcher calling `NEXT_PUBLIC_API_URL/api/ai/chat/stream`
 - sidebar navigation
 - model/status panel
 - skills/context panel mock

@@ -63,6 +63,84 @@ async function* streamBackendChat(
   threadId: string,
   signal: AbortSignal,
 ): AsyncIterable<StreamChunk> {
+  const response = await fetch(apiUrl("/api/ai/chat/stream"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: backendMessagesFromUI(messages),
+      runId,
+      threadId,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response));
+  }
+  if (!response.body) {
+    throw new Error("AI stream response did not include a body.");
+  }
+
+  for await (const chunk of parseSSEStream(response.body, signal)) {
+    yield chunk;
+  }
+}
+
+async function responseErrorMessage(response: Response) {
+  try {
+    const result = (await response.json()) as BackendChatResponse;
+    return result.error?.message ?? `AI request failed (${response.status})`;
+  } catch {
+    return `AI request failed (${response.status})`;
+  }
+}
+
+async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncIterable<StreamChunk> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+
+      for (const event of events) {
+        const chunk = parseSSEEvent(event);
+        if (chunk) yield chunk;
+      }
+    }
+
+    buffer += decoder.decode();
+    const chunk = parseSSEEvent(buffer);
+    if (chunk) yield chunk;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseSSEEvent(event: string): StreamChunk | null {
+  const data = event
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.replace(/^data:\s?/, ""))
+    .join("\n")
+    .trim();
+
+  if (!data || data === "[DONE]") return null;
+  return JSON.parse(data) as StreamChunk;
+}
+
+export async function* streamBackendChatFallback(
+  messages: UIMessage[],
+  runId: string,
+  threadId: string,
+  signal: AbortSignal,
+): AsyncIterable<StreamChunk> {
   const startedAt = Date.now();
   const messageId = `assistant-${runId}`;
 
