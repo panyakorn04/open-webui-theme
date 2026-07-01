@@ -1,0 +1,140 @@
+import { EventType, type StreamChunk } from "@tanstack/ai/client";
+import type { ChatFetcher, UIMessage } from "@tanstack/ai-client";
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+export const aiModel = "panyakorn-local:latest";
+
+export type BackendChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+type BackendChatResponse = {
+  ok: boolean;
+  data?: {
+    model: string;
+    message?: {
+      role: "assistant" | "user" | "system";
+      content: string;
+    };
+    done: boolean;
+    usage?: {
+      prompt_eval_count?: number;
+      eval_count?: number;
+    };
+  };
+  error?: {
+    message?: string;
+  };
+};
+
+export function apiUrl(path: string) {
+  if (!apiBaseUrl) return path;
+  return `${apiBaseUrl.replace(/\/$/, "")}${path}`;
+}
+
+function textFromUIMessage(message: UIMessage) {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.content)
+    .join("\n")
+    .trim();
+}
+
+export function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage[] {
+  return messages
+    .map((message) => ({
+      role: message.role,
+      content: textFromUIMessage(message),
+    }))
+    .filter((message): message is BackendChatMessage =>
+      (message.role === "system" || message.role === "user" || message.role === "assistant") && message.content !== "",
+    )
+    .slice(-10);
+}
+
+export const backendChatFetcher: ChatFetcher = ({ messages, runId, threadId }, { signal }) =>
+  streamBackendChat(messages as UIMessage[], runId, threadId, signal);
+
+async function* streamBackendChat(
+  messages: UIMessage[],
+  runId: string,
+  threadId: string,
+  signal: AbortSignal,
+): AsyncIterable<StreamChunk> {
+  const startedAt = Date.now();
+  const messageId = `assistant-${runId}`;
+
+  yield {
+    type: EventType.RUN_STARTED,
+    timestamp: startedAt,
+    runId,
+    threadId,
+    model: aiModel,
+  } as StreamChunk;
+
+  try {
+    const response = await fetch(apiUrl("/api/ai/chat"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: backendMessagesFromUI(messages) }),
+      signal,
+    });
+
+    const result = (await response.json()) as BackendChatResponse;
+    if (!response.ok || !result.ok || !result.data?.message?.content) {
+      throw new Error(result.error?.message ?? `AI request failed (${response.status})`);
+    }
+
+    const content = result.data.message.content;
+
+    yield {
+      type: EventType.TEXT_MESSAGE_START,
+      timestamp: Date.now(),
+      messageId,
+      role: "assistant",
+      model: result.data.model,
+    } as StreamChunk;
+
+    yield {
+      type: EventType.TEXT_MESSAGE_CONTENT,
+      timestamp: Date.now(),
+      messageId,
+      delta: content,
+      content,
+      model: result.data.model,
+    } as StreamChunk;
+
+    yield {
+      type: EventType.TEXT_MESSAGE_END,
+      timestamp: Date.now(),
+      messageId,
+      model: result.data.model,
+    } as StreamChunk;
+
+    yield {
+      type: EventType.RUN_FINISHED,
+      timestamp: Date.now(),
+      runId,
+      threadId,
+      model: result.data.model,
+      usage: {
+        promptTokens: result.data.usage?.prompt_eval_count,
+        completionTokens: result.data.usage?.eval_count,
+      },
+    } as StreamChunk;
+  } catch (error) {
+    if (signal.aborted) return;
+
+    yield {
+      type: EventType.RUN_ERROR,
+      timestamp: Date.now(),
+      runId,
+      threadId,
+      model: aiModel,
+      message: error instanceof Error ? error.message : "Unable to send prompt.",
+      code: "BACKEND_CHAT_ERROR",
+    } as StreamChunk;
+  }
+}

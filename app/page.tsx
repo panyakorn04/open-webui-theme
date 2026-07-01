@@ -1,6 +1,15 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+    type FormEvent,
+    type KeyboardEvent,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import { useChat, type UIMessage } from "@tanstack/ai-react";
+import { aiModel, apiUrl, backendChatFetcher } from "../lib/backend-chat-fetcher";
 
 const conversations = [
     { label: "Deploy Frontend to VPS", active: false },
@@ -22,46 +31,32 @@ const quickPrompts = [
 ];
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
-const aiModel = "panyakorn-local:latest";
 
-type ChatRole = "assistant" | "user";
-
-type ChatMessage = {
-    id: string;
-    role: ChatRole;
-    content: string;
-    meta: string;
-};
-
-type ApiChatResponse = {
-    ok: boolean;
-    data?: {
-        model: string;
-        message?: { role: "assistant" | "user" | "system"; content: string };
-        done: boolean;
-        usage?: { prompt_eval_count?: number; eval_count?: number };
-    };
-    error?: { message?: string };
-};
-
-function apiUrl(path: string) {
-    if (!apiBaseUrl) return path;
-    return `${apiBaseUrl.replace(/\/$/, "")}${path}`;
-}
-
-function buildId() {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-const initialMessages: ChatMessage[] = [
+const initialMessages: UIMessage[] = [
     {
         id: "welcome",
         role: "assistant",
-        meta: "Panyakorn AI",
-        content:
-            "สวัสดีครับ ตอนนี้ AI Console เชื่อมกับ backend API และ Ollama local model แล้ว ลองพิมพ์คำถามได้เลยครับ",
+        parts: [
+            {
+                type: "text",
+                content:
+                    "สวัสดีครับ ตอนนี้ AI Console เชื่อมกับ backend API และ Ollama local model แล้ว ลองพิมพ์คำถามได้เลยครับ",
+            },
+        ],
     },
 ];
+
+function messageText(message: UIMessage) {
+    return message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.content)
+        .join("\n");
+}
+
+function messageMeta(message: UIMessage) {
+    if (message.id === "welcome") return "Panyakorn AI";
+    return message.role === "assistant" ? aiModel : "You";
+}
 
 /* ── SVG Icons ─────────────────────────────────────── */
 function IconPlus() {
@@ -101,10 +96,13 @@ function IconArrowUp() {
 
 /* ── Component ─────────────────────────────────────── */
 export default function Home() {
-    const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
     const [prompt, setPrompt] = useState("");
-    const [isSending, setIsSending] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const { clear, error, isLoading, messages, sendMessage, setMessages } =
+        useChat({
+            fetcher: backendChatFetcher,
+            initialMessages,
+            devtools: { name: "Panyakorn AI Console" },
+        });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -114,70 +112,17 @@ export default function Home() {
     });
 
     const statusLabel = useMemo(() => {
-        if (isSending) return "Thinking…";
+        if (isLoading) return "Thinking…";
         if (error) return "API error";
         return "Connected";
-    }, [error, isSending]);
+    }, [error, isLoading]);
 
     async function sendPrompt(nextPrompt: string) {
         const trimmed = nextPrompt.trim();
-        if (!trimmed || isSending) return;
+        if (!trimmed || isLoading) return;
 
-        const userMsg: ChatMessage = {
-            id: buildId(),
-            role: "user",
-            meta: "You",
-            content: trimmed,
-        };
-
-        setMessages((prev) => [...prev, userMsg]);
         setPrompt("");
-        setError(null);
-        setIsSending(true);
-
-        try {
-            const history = [...messages, userMsg]
-                .slice(-10)
-                .map(({ role, content }) => ({ role, content }));
-
-            const res = await fetch(apiUrl("/api/ai/chat"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: history }),
-            });
-
-            const result = (await res.json()) as ApiChatResponse;
-            if (!res.ok || !result.ok || !result.data?.message?.content) {
-                throw new Error(
-                    result.error?.message ??
-                        `AI request failed (${res.status})`,
-                );
-            }
-
-            const assistantMsg: ChatMessage = {
-                id: buildId(),
-                role: "assistant",
-                meta: `${result.data.model} · ${result.data.usage?.eval_count ?? 0} tokens`,
-                content: result.data.message.content,
-            };
-
-            setMessages((prev) => [...prev, assistantMsg]);
-        } catch (err) {
-            const msg =
-                err instanceof Error ? err.message : "Unable to send prompt.";
-            setError(msg);
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: buildId(),
-                    role: "assistant",
-                    meta: "API error",
-                    content: `ขออภัยครับ เรียก backend AI ไม่สำเร็จ: ${msg}`,
-                },
-            ]);
-        } finally {
-            setIsSending(false);
-        }
+        await sendMessage(trimmed);
     }
 
     function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -185,11 +130,17 @@ export default function Home() {
         void sendPrompt(prompt);
     }
 
-    function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             void sendPrompt(prompt);
         }
+    }
+
+    function resetChat() {
+        clear();
+        setMessages(initialMessages);
+        setPrompt("");
     }
 
     return (
@@ -215,10 +166,7 @@ export default function Home() {
                     <button
                         className="new-chat"
                         type="button"
-                        onClick={() => {
-                            setMessages(initialMessages);
-                            setError(null);
-                        }}
+                        onClick={resetChat}
                     >
                         <IconPlus />
                         New chat
@@ -261,7 +209,7 @@ export default function Home() {
                             <span className="status-dot" aria-hidden="true" />
                             <div>
                                 <strong>panyakorn-local</strong>
-                                <span>qwen2.5:3b · Ollama internal</span>
+                                <span>{aiModel} · Ollama internal</span>
                             </div>
                         </div>
                     </div>
@@ -281,12 +229,14 @@ export default function Home() {
                             aria-atomic="true"
                         >
                             <span
-                                className={`pill${isSending ? " thinking" : ""}`}
+                                className={`pill${isLoading ? " thinking" : ""}`}
                             >
                                 <span className="pill-dot" aria-hidden="true" />
                                 {statusLabel}
                             </span>
-                            <span className="pill accent">{aiModel}</span>
+                            <span className="pill accent">
+                                TanStack AI · {aiModel}
+                            </span>
                         </div>
                     </header>
 
@@ -314,40 +264,47 @@ export default function Home() {
                         aria-live="polite"
                         aria-label="Chat messages"
                     >
-                        {messages.map((msg) => (
-                            <article
-                                key={msg.id}
-                                className={
-                                    msg.role === "user"
-                                        ? "message user"
-                                        : "message assistant"
-                                }
-                            >
-                                {msg.role === "assistant" && (
-                                    <span
-                                        className="avatar ai-avatar"
-                                        aria-hidden="true"
-                                    >
-                                        AI
-                                    </span>
-                                )}
-                                <div className="bubble">
-                                    <p className="message-meta">{msg.meta}</p>
-                                    <p>{msg.content}</p>
-                                </div>
-                                {msg.role === "user" && (
-                                    <span
-                                        className="avatar user-avatar"
-                                        aria-hidden="true"
-                                    >
-                                        PB
-                                    </span>
-                                )}
-                            </article>
-                        ))}
+                        {messages.map((message) => {
+                            const content = messageText(message);
+                            if (!content) return null;
+
+                            return (
+                                <article
+                                    key={message.id}
+                                    className={
+                                        message.role === "user"
+                                            ? "message user"
+                                            : "message assistant"
+                                    }
+                                >
+                                    {message.role === "assistant" && (
+                                        <span
+                                            className="avatar ai-avatar"
+                                            aria-hidden="true"
+                                        >
+                                            AI
+                                        </span>
+                                    )}
+                                    <div className="bubble">
+                                        <p className="message-meta">
+                                            {messageMeta(message)}
+                                        </p>
+                                        <p>{content}</p>
+                                    </div>
+                                    {message.role === "user" && (
+                                        <span
+                                            className="avatar user-avatar"
+                                            aria-hidden="true"
+                                        >
+                                            PB
+                                        </span>
+                                    )}
+                                </article>
+                            );
+                        })}
 
                         {/* Typing indicator */}
-                        {isSending && (
+                        {isLoading && (
                             <article
                                 className="message assistant"
                                 aria-label="AI is thinking"
@@ -372,6 +329,23 @@ export default function Home() {
                             </article>
                         )}
 
+                        {error && (
+                            <article className="message assistant">
+                                <span
+                                    className="avatar ai-avatar"
+                                    aria-hidden="true"
+                                >
+                                    AI
+                                </span>
+                                <div className="bubble">
+                                    <p className="message-meta">API error</p>
+                                    <p>
+                                        ขออภัยครับ เรียก backend AI ไม่สำเร็จ: {error.message}
+                                    </p>
+                                </div>
+                            </article>
+                        )}
+
                         <div ref={messagesEndRef} aria-hidden="true" />
                     </div>
 
@@ -383,7 +357,7 @@ export default function Home() {
                                     key={qp}
                                     type="button"
                                     onClick={() => void sendPrompt(qp)}
-                                    disabled={isSending}
+                                    disabled={isLoading}
                                 >
                                     {qp}
                                 </button>
@@ -396,12 +370,12 @@ export default function Home() {
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                                disabled={isSending}
+                                disabled={isLoading}
                             />
                             <button
                                 className="send-btn"
                                 type="submit"
-                                disabled={isSending || prompt.trim() === ""}
+                                disabled={isLoading || prompt.trim() === ""}
                                 aria-label="Send message"
                             >
                                 <IconArrowUp />
@@ -418,7 +392,7 @@ export default function Home() {
                     {/* Status card */}
                     <section className="glass-card glow-card">
                         <p className="eyebrow">Live wiring</p>
-                        <h3>Frontend → Backend → Ollama</h3>
+                        <h3>Frontend → TanStack AI → Backend → Ollama</h3>
                         <div className="token-grid" aria-hidden="true">
                             <span
                                 style={{ background: "rgba(34,197,94,0.08)" }}
@@ -465,6 +439,7 @@ export default function Home() {
                         <code>
                             NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}
                         </code>
+                        <code>AI_CLIENT=TanStack AI fetcher</code>
                         <code>BACKEND_MODEL={aiModel}</code>
                         <code>OLLAMA_URL=internal://ollama:11434</code>
                     </section>
