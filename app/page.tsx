@@ -149,6 +149,40 @@ function IconArrowUp() {
     );
 }
 
+function IconMenu() {
+    return (
+        <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden="true"
+        >
+            <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+    );
+}
+
+function IconX() {
+    return (
+        <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden="true"
+        >
+            <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+    );
+}
+
 /* ── Component ─────────────────────────────────────── */
 export default function Home() {
     const defaultSessionRef = useRef<ChatSession>(createChatSession());
@@ -159,6 +193,7 @@ export default function Home() {
     const [activeSessionId, setActiveSessionId] = useState(
         defaultSessionRef.current.id,
     );
+    const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
     const hasLoadedStoredSessionsRef = useRef(false);
     const { error, isLoading, messages, sendMessage, setMessages } = useChat({
         fetcher: backendChatFetcher,
@@ -167,6 +202,49 @@ export default function Home() {
     });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function syncVisualViewportHeight() {
+            const height = window.visualViewport?.height ?? window.innerHeight;
+            document.documentElement.style.setProperty(
+                "--visual-viewport-height",
+                `${height}px`,
+            );
+        }
+
+        syncVisualViewportHeight();
+        window.visualViewport?.addEventListener("resize", syncVisualViewportHeight);
+        window.visualViewport?.addEventListener("scroll", syncVisualViewportHeight);
+        window.addEventListener("resize", syncVisualViewportHeight);
+
+        return () => {
+            window.visualViewport?.removeEventListener(
+                "resize",
+                syncVisualViewportHeight,
+            );
+            window.visualViewport?.removeEventListener(
+                "scroll",
+                syncVisualViewportHeight,
+            );
+            window.removeEventListener("resize", syncVisualViewportHeight);
+        };
+    }, []);
+
+    useEffect(() => {
+        function handleEscape(event: globalThis.KeyboardEvent) {
+            if (event.key === "Escape") {
+                setMobileDrawerOpen(false);
+            }
+        }
+
+        window.addEventListener("keydown", handleEscape);
+        return () => window.removeEventListener("keydown", handleEscape);
+    }, []);
+
+    useEffect(() => {
+        document.body.classList.toggle("drawer-open", mobileDrawerOpen);
+        return () => document.body.classList.remove("drawer-open");
+    }, [mobileDrawerOpen]);
 
     useEffect(() => {
         const stored = readStoredSessions();
@@ -263,6 +341,7 @@ export default function Home() {
         setActiveSessionId(nextSession.id);
         setMessages(nextSession.messages);
         setPrompt("");
+        setMobileDrawerOpen(false);
     }
 
     function openSession(session: ChatSession) {
@@ -271,6 +350,7 @@ export default function Home() {
         setActiveSessionId(session.id);
         setMessages(session.messages);
         setPrompt("");
+        setMobileDrawerOpen(false);
     }
 
     return (
@@ -279,8 +359,22 @@ export default function Home() {
             <div className="ambient" aria-hidden="true" />
 
             <main className="app-shell">
+                <button
+                    className="drawer-backdrop"
+                    type="button"
+                    aria-label="Close navigation drawer"
+                    aria-hidden={!mobileDrawerOpen}
+                    tabIndex={mobileDrawerOpen ? 0 : -1}
+                    onClick={() => setMobileDrawerOpen(false)}
+                />
+
                 {/* ── Sidebar ─────────────────────────────── */}
-                <aside className="sidebar" aria-label="Workspace navigation">
+                <aside
+                    id="workspace-sidebar"
+                    className={`sidebar${mobileDrawerOpen ? " open" : ""}`}
+                    aria-label="Workspace navigation"
+                    aria-modal={mobileDrawerOpen ? "true" : undefined}
+                >
                     {/* Brand */}
                     <div className="brand-card">
                         <div className="brand-mark" aria-hidden="true">
@@ -290,6 +384,14 @@ export default function Home() {
                             <p className="eyebrow">PANYAKORN</p>
                             <h1>AI Console</h1>
                         </div>
+                        <button
+                            className="drawer-close"
+                            type="button"
+                            aria-label="Close navigation drawer"
+                            onClick={() => setMobileDrawerOpen(false)}
+                        >
+                            <IconX />
+                        </button>
                     </div>
 
                     {/* New Chat */}
@@ -359,6 +461,16 @@ export default function Home() {
                 <section className="chat-panel" aria-label="AI chat">
                     {/* Topbar */}
                     <header className="topbar">
+                        <button
+                            className="mobile-menu-toggle"
+                            type="button"
+                            aria-label="Open navigation drawer"
+                            aria-expanded={mobileDrawerOpen}
+                            aria-controls="workspace-sidebar"
+                            onClick={() => setMobileDrawerOpen(true)}
+                        >
+                            <IconMenu />
+                        </button>
                         <div className="topbar-title">
                             <p className="eyebrow">Backend API Connected</p>
                             <h2>{activeSession?.title ?? "New chat"}</h2>
