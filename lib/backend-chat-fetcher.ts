@@ -35,11 +35,11 @@ export function apiUrl(path: string) {
 }
 
 function textFromUIMessage(message: UIMessage) {
-  return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.content)
-    .join("\n")
-    .trim();
+  const texts: string[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text") texts.push(part.content);
+  }
+  return texts.join("\n").trim();
 }
 
 export function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage[] {
@@ -155,7 +155,7 @@ function parseSSEEvent(event: string): StreamChunk | null {
   return JSON.parse(data) as StreamChunk;
 }
 
-export async function* streamBackendChatFallback(
+async function* streamBackendChatFallback(
   messages: UIMessage[],
   runId: string,
   threadId: string,

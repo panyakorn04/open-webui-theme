@@ -1,15 +1,20 @@
 "use client";
 
+import { type UIMessage, useChat } from "@tanstack/ai-react";
 import {
     type FormEvent,
     type KeyboardEvent,
+    type RefObject,
     useEffect,
     useMemo,
     useRef,
     useState,
 } from "react";
-import { useChat, type UIMessage } from "@tanstack/ai-react";
-import { aiModel, apiUrl, backendChatFetcher } from "../lib/backend-chat-fetcher";
+import {
+    aiModel,
+    apiUrl,
+    backendChatFetcher,
+} from "../lib/backend-chat-fetcher";
 
 const skills = [
     "portfolio-2026",
@@ -67,10 +72,11 @@ function createChatSession(title = "New chat"): ChatSession {
 }
 
 function messageText(message: UIMessage) {
-    return message.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.content)
-        .join("\n");
+    const texts: string[] = [];
+    for (const part of message.parts) {
+        if (part.type === "text") texts.push(part.content);
+    }
+    return texts.join("\n");
 }
 
 function messageMeta(message: UIMessage) {
@@ -79,7 +85,9 @@ function messageMeta(message: UIMessage) {
 }
 
 function sessionTitleFromMessages(messages: UIMessage[]) {
-    const firstUserMessage = messages.find((message) => message.role === "user");
+    const firstUserMessage = messages.find(
+        (message) => message.role === "user",
+    );
     const text = firstUserMessage ? messageText(firstUserMessage).trim() : "";
     if (!text) return "New chat";
     return text.length > 48 ? `${text.slice(0, 48)}…` : text;
@@ -183,9 +191,259 @@ function IconX() {
     );
 }
 
+const ambientBg = <div className="ambient" aria-hidden="true" />;
+
+/* ── Sub-components ───────────────────────────────── */
+function Sidebar({
+    sortedSessions,
+    activeSessionId,
+    isLoading,
+    mobileDrawerOpen,
+    setMobileDrawerOpen,
+    startNewChat,
+    openSession,
+}: {
+    sortedSessions: ChatSession[];
+    activeSessionId: string;
+    isLoading: boolean;
+    mobileDrawerOpen: boolean;
+    setMobileDrawerOpen: (v: boolean) => void;
+    startNewChat: () => void;
+    openSession: (session: ChatSession) => void;
+}) {
+    return (
+        <aside
+            id="workspace-sidebar"
+            className={`sidebar${mobileDrawerOpen ? " open" : ""}`}
+            aria-label="Workspace navigation"
+            aria-modal={mobileDrawerOpen ? "true" : undefined}
+        >
+            <div className="brand-card">
+                <div className="brand-mark" aria-hidden="true">
+                    PK
+                </div>
+                <div className="brand-info">
+                    <p className="eyebrow">PANYAKORN</p>
+                    <h1>AI Console</h1>
+                </div>
+                <button
+                    className="drawer-close"
+                    type="button"
+                    aria-label="Close navigation drawer"
+                    onClick={() => setMobileDrawerOpen(false)}
+                >
+                    <IconX />
+                </button>
+            </div>
+
+            <button
+                className="new-chat"
+                type="button"
+                onClick={startNewChat}
+                disabled={isLoading}
+            >
+                <IconPlus />
+                New chat
+            </button>
+
+            <nav className="nav-section" aria-label="Recent conversations">
+                <p className="section-label">Recent</p>
+                <div className="conversation-list">
+                    {sortedSessions.map((session) => {
+                        const active = session.id === activeSessionId;
+                        return (
+                            <button
+                                key={session.id}
+                                className={
+                                    active
+                                        ? "conversation active"
+                                        : "conversation"
+                                }
+                                type="button"
+                                aria-current={active ? "page" : undefined}
+                                disabled={isLoading && !active}
+                                title={session.title}
+                                onClick={() => openSession(session)}
+                            >
+                                <span
+                                    className={
+                                        active ? "dot" : "dot dot-dim"
+                                    }
+                                    aria-hidden="true"
+                                />
+                                {session.title}
+                            </button>
+                        );
+                    })}
+                </div>
+            </nav>
+
+            <div className="nav-section bottom">
+                <p className="section-label">Model</p>
+                <div className="model-card">
+                    <span className="status-dot" aria-hidden="true" />
+                    <div>
+                        <strong>panyakorn-local</strong>
+                        <span>{aiModel} · Ollama internal</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    );
+}
+
+function MessageList({
+    messages,
+    isLoading,
+    error,
+    messagesEndRef,
+}: {
+    messages: UIMessage[];
+    isLoading: boolean;
+    error: Error | undefined | null;
+    messagesEndRef: RefObject<HTMLDivElement | null>;
+}) {
+    return (
+        <div
+            className="messages"
+            role="log"
+            aria-live="polite"
+            aria-label="Chat messages"
+        >
+            {messages.map((message) => {
+                const content = messageText(message);
+                if (!content) return null;
+
+                return (
+                    <article
+                        key={message.id}
+                        className={
+                            message.role === "user"
+                                ? "message user"
+                                : "message assistant"
+                        }
+                    >
+                        {message.role === "assistant" && (
+                            <span
+                                className="avatar ai-avatar"
+                                aria-hidden="true"
+                            >
+                                AI
+                            </span>
+                        )}
+                        <div className="bubble">
+                            <p className="message-meta">
+                                {messageMeta(message)}
+                            </p>
+                            <p>{content}</p>
+                        </div>
+                        {message.role === "user" && (
+                            <span
+                                className="avatar user-avatar"
+                                aria-hidden="true"
+                            >
+                                PB
+                            </span>
+                        )}
+                    </article>
+                );
+            })}
+
+            {isLoading && (
+                <article
+                    className="message assistant"
+                    aria-label="AI is thinking"
+                >
+                    <span className="avatar ai-avatar" aria-hidden="true">
+                        AI
+                    </span>
+                    <div className="bubble">
+                        <p className="message-meta">Thinking</p>
+                        <div className="typing-dots" aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                        </div>
+                    </div>
+                </article>
+            )}
+
+            {error && (
+                <article className="message assistant">
+                    <span className="avatar ai-avatar" aria-hidden="true">
+                        AI
+                    </span>
+                    <div className="bubble">
+                        <p className="message-meta">API error</p>
+                        <p>
+                            ขออภัยครับ เรียก backend AI ไม่สำเร็จ:{" "}
+                            {error.message}
+                        </p>
+                    </div>
+                </article>
+            )}
+
+            <div ref={messagesEndRef} aria-hidden="true" />
+        </div>
+    );
+}
+
+function ContextPanel({ error }: { error: Error | undefined | null }) {
+    return (
+        <aside className="context-panel" aria-label="Context and skills">
+
+
+            <section className="glass-card glow-card">
+                <p className="eyebrow">Live wiring</p>
+                <h3>Frontend → TanStack AI → Backend → Ollama</h3>
+                <div className="token-grid" aria-hidden="true">
+                    <span style={{ background: "rgba(34,197,94,0.08)" }} />
+                    <span style={{ background: "rgba(34,197,94,0.16)" }} />
+                    <span style={{ background: "rgba(34,197,94,0.55)" }} />
+                    <span style={{ background: "rgba(34,197,94,0.30)" }} />
+                </div>
+                <div className="connection-row">
+                    <span className="conn-label">API status</span>
+                    <span className="conn-status">
+                        {error ? "● Error" : "● Online"}
+                    </span>
+                </div>
+            </section>
+
+            <section className="glass-card">
+                <p className="section-label">Attached skills</p>
+                <div className="skill-list">
+                    {skills.map((s) => (
+                        <div className="skill-chip" key={s}>
+                            <span className="skill-chip-hash" aria-hidden="true">
+                                #
+                            </span>
+                            {s}
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section className="glass-card terminal-card">
+                <p className="section-label">Runtime</p>
+                <code>
+                    NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}
+                </code>
+                <code>AI_CLIENT=TanStack AI SSE stream</code>
+                <code>CHAT_SESSIONS=localStorage</code>
+                <code>BACKEND_MODEL={aiModel}</code>
+                <code>OLLAMA_URL=internal://ollama:11434</code>
+            </section>
+        </aside>
+    );
+}
+
 /* ── Component ─────────────────────────────────────── */
 export default function Home() {
-    const defaultSessionRef = useRef<ChatSession>(createChatSession());
+    const defaultSessionRef = useRef<ChatSession>(null!);
+    if (defaultSessionRef.current === null) {
+        defaultSessionRef.current = createChatSession();
+    }
     const [prompt, setPrompt] = useState("");
     const [sessions, setSessions] = useState<ChatSession[]>([
         defaultSessionRef.current,
@@ -213,8 +471,15 @@ export default function Home() {
         }
 
         syncVisualViewportHeight();
-        window.visualViewport?.addEventListener("resize", syncVisualViewportHeight);
-        window.visualViewport?.addEventListener("scroll", syncVisualViewportHeight);
+        window.visualViewport?.addEventListener(
+            "resize",
+            syncVisualViewportHeight,
+        );
+        window.visualViewport?.addEventListener(
+            "scroll",
+            syncVisualViewportHeight,
+            { passive: true },
+        );
         window.addEventListener("resize", syncVisualViewportHeight);
 
         return () => {
@@ -265,31 +530,28 @@ export default function Home() {
     useEffect(() => {
         if (!hasLoadedStoredSessionsRef.current) return;
 
-        try {
-            window.localStorage.setItem(
-                chatSessionsStorageKey,
-                JSON.stringify({ activeSessionId, sessions }),
-            );
-        } catch {
-            // Ignore storage failures so chat remains usable in private mode/quota limits.
-        }
-    }, [activeSessionId, sessions]);
-
-    useEffect(() => {
-        if (!hasLoadedStoredSessionsRef.current) return;
-
-        setSessions((currentSessions) =>
-            currentSessions.map((session) => {
+        setSessions((currentSessions) => {
+            const updated = currentSessions.map((session) => {
                 if (session.id !== activeSessionId) return session;
-
                 return {
                     ...session,
                     title: sessionTitleFromMessages(messages),
                     messages,
                     updatedAt: Date.now(),
                 };
-            }),
-        );
+            });
+
+            try {
+                window.localStorage.setItem(
+                    chatSessionsStorageKey,
+                    JSON.stringify({ activeSessionId, sessions: updated }),
+                );
+            } catch {
+                // Ignore storage failures so chat remains usable in private mode/quota limits.
+            }
+
+            return updated;
+        });
     }, [activeSessionId, messages]);
 
     /* Auto-scroll to bottom after every render that changes the message list */
@@ -303,15 +565,12 @@ export default function Home() {
     );
 
     const sortedSessions = useMemo(
-        () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+        () => sessions.toSorted((a, b) => b.updatedAt - a.updatedAt),
         [sessions],
     );
 
-    const statusLabel = useMemo(() => {
-        if (isLoading) return "Thinking…";
-        if (error) return "API error";
-        return "Connected";
-    }, [error, isLoading]);
+    const statusLabel =
+        isLoading ? "Thinking…" : error ? "API error" : "Connected";
 
     async function sendPrompt(nextPrompt: string) {
         const trimmed = nextPrompt.trim();
@@ -356,106 +615,27 @@ export default function Home() {
     return (
         <>
             {/* Ambient background blobs */}
-            <div className="ambient" aria-hidden="true" />
+            {ambientBg}
 
             <main className="app-shell">
                 <button
                     className="drawer-backdrop"
                     type="button"
                     aria-label="Close navigation drawer"
-                    aria-hidden={!mobileDrawerOpen}
                     tabIndex={mobileDrawerOpen ? 0 : -1}
                     onClick={() => setMobileDrawerOpen(false)}
                 />
 
                 {/* ── Sidebar ─────────────────────────────── */}
-                <aside
-                    id="workspace-sidebar"
-                    className={`sidebar${mobileDrawerOpen ? " open" : ""}`}
-                    aria-label="Workspace navigation"
-                    aria-modal={mobileDrawerOpen ? "true" : undefined}
-                >
-                    {/* Brand */}
-                    <div className="brand-card">
-                        <div className="brand-mark" aria-hidden="true">
-                            PK
-                        </div>
-                        <div className="brand-info">
-                            <p className="eyebrow">PANYAKORN</p>
-                            <h1>AI Console</h1>
-                        </div>
-                        <button
-                            className="drawer-close"
-                            type="button"
-                            aria-label="Close navigation drawer"
-                            onClick={() => setMobileDrawerOpen(false)}
-                        >
-                            <IconX />
-                        </button>
-                    </div>
-
-                    {/* New Chat */}
-                    <button
-                        className="new-chat"
-                        type="button"
-                        onClick={startNewChat}
-                        disabled={isLoading}
-                    >
-                        <IconPlus />
-                        New chat
-                    </button>
-
-                    {/* Recent conversations */}
-                    <nav
-                        className="nav-section"
-                        aria-label="Recent conversations"
-                    >
-                        <p className="section-label">Recent</p>
-                        <div className="conversation-list">
-                            {sortedSessions.map((session) => {
-                                const active = session.id === activeSessionId;
-
-                                return (
-                                    <button
-                                        key={session.id}
-                                        className={
-                                            active
-                                                ? "conversation active"
-                                                : "conversation"
-                                        }
-                                        type="button"
-                                        aria-current={
-                                            active ? "page" : undefined
-                                        }
-                                        disabled={isLoading && !active}
-                                        title={session.title}
-                                        onClick={() => openSession(session)}
-                                    >
-                                        <span
-                                            className={
-                                                active ? "dot" : "dot dot-dim"
-                                            }
-                                            aria-hidden="true"
-                                        />
-                                        {session.title}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </nav>
-
-                    {/* Model */}
-                    <div className="nav-section bottom">
-                        <p className="section-label">Model</p>
-                        <div className="model-card">
-                            <span className="status-dot" aria-hidden="true" />
-                            <div>
-                                <strong>panyakorn-local</strong>
-                                <span>{aiModel} · Ollama internal</span>
-                            </div>
-                        </div>
-                    </div>
-                </aside>
+                <Sidebar
+                    sortedSessions={sortedSessions}
+                    activeSessionId={activeSessionId}
+                    isLoading={isLoading}
+                    mobileDrawerOpen={mobileDrawerOpen}
+                    setMobileDrawerOpen={setMobileDrawerOpen}
+                    startNewChat={startNewChat}
+                    openSession={openSession}
+                />
 
                 {/* ── Chat Panel ──────────────────────────── */}
                 <section className="chat-panel" aria-label="AI chat">
@@ -510,96 +690,12 @@ export default function Home() {
                     </div>
 
                     {/* Messages */}
-                    <div
-                        className="messages"
-                        role="log"
-                        aria-live="polite"
-                        aria-label="Chat messages"
-                    >
-                        {messages.map((message) => {
-                            const content = messageText(message);
-                            if (!content) return null;
-
-                            return (
-                                <article
-                                    key={message.id}
-                                    className={
-                                        message.role === "user"
-                                            ? "message user"
-                                            : "message assistant"
-                                    }
-                                >
-                                    {message.role === "assistant" && (
-                                        <span
-                                            className="avatar ai-avatar"
-                                            aria-hidden="true"
-                                        >
-                                            AI
-                                        </span>
-                                    )}
-                                    <div className="bubble">
-                                        <p className="message-meta">
-                                            {messageMeta(message)}
-                                        </p>
-                                        <p>{content}</p>
-                                    </div>
-                                    {message.role === "user" && (
-                                        <span
-                                            className="avatar user-avatar"
-                                            aria-hidden="true"
-                                        >
-                                            PB
-                                        </span>
-                                    )}
-                                </article>
-                            );
-                        })}
-
-                        {/* Typing indicator */}
-                        {isLoading && (
-                            <article
-                                className="message assistant"
-                                aria-label="AI is thinking"
-                            >
-                                <span
-                                    className="avatar ai-avatar"
-                                    aria-hidden="true"
-                                >
-                                    AI
-                                </span>
-                                <div className="bubble">
-                                    <p className="message-meta">Thinking</p>
-                                    <div
-                                        className="typing-dots"
-                                        aria-hidden="true"
-                                    >
-                                        <span />
-                                        <span />
-                                        <span />
-                                    </div>
-                                </div>
-                            </article>
-                        )}
-
-                        {error && (
-                            <article className="message assistant">
-                                <span
-                                    className="avatar ai-avatar"
-                                    aria-hidden="true"
-                                >
-                                    AI
-                                </span>
-                                <div className="bubble">
-                                    <p className="message-meta">API error</p>
-                                    <p>
-                                        ขออภัยครับ เรียก backend AI ไม่สำเร็จ: {error.message}
-                                    </p>
-                                </div>
-                            </article>
-                        )}
-
-                        <div ref={messagesEndRef} aria-hidden="true" />
-                    </div>
+                    <MessageList
+                        messages={messages}
+                        isLoading={isLoading}
+                        error={error}
+                        messagesEndRef={messagesEndRef}
+                    />
 
                     {/* Composer */}
                     <div className="composer-card">
@@ -637,66 +733,7 @@ export default function Home() {
                 </section>
 
                 {/* ── Context Panel ────────────────────────── */}
-                <aside
-                    className="context-panel"
-                    aria-label="Context and skills"
-                >
-                    {/* Status card */}
-                    <section className="glass-card glow-card">
-                        <p className="eyebrow">Live wiring</p>
-                        <h3>Frontend → TanStack AI → Backend → Ollama</h3>
-                        <div className="token-grid" aria-hidden="true">
-                            <span
-                                style={{ background: "rgba(34,197,94,0.08)" }}
-                            />
-                            <span
-                                style={{ background: "rgba(34,197,94,0.16)" }}
-                            />
-                            <span
-                                style={{ background: "rgba(34,197,94,0.55)" }}
-                            />
-                            <span
-                                style={{ background: "rgba(34,197,94,0.30)" }}
-                            />
-                        </div>
-                        <div className="connection-row">
-                            <span className="conn-label">API status</span>
-                            <span className="conn-status">
-                                {error ? "● Error" : "● Online"}
-                            </span>
-                        </div>
-                    </section>
-
-                    {/* Skills */}
-                    <section className="glass-card">
-                        <p className="section-label">Attached skills</p>
-                        <div className="skill-list">
-                            {skills.map((s) => (
-                                <div className="skill-chip" key={s}>
-                                    <span
-                                        className="skill-chip-hash"
-                                        aria-hidden="true"
-                                    >
-                                        #
-                                    </span>
-                                    {s}
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-
-                    {/* Runtime */}
-                    <section className="glass-card terminal-card">
-                        <p className="section-label">Runtime</p>
-                        <code>
-                            NEXT_PUBLIC_API_URL={apiBaseUrl || "same-origin"}
-                        </code>
-                        <code>AI_CLIENT=TanStack AI SSE stream</code>
-                        <code>CHAT_SESSIONS=localStorage</code>
-                        <code>BACKEND_MODEL={aiModel}</code>
-                        <code>OLLAMA_URL=internal://ollama:11434</code>
-                    </section>
-                </aside>
+                <ContextPanel error={error} />
             </main>
         </>
     );
