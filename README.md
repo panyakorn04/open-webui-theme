@@ -1,13 +1,13 @@
 # Open WebUI Theme
 
-A standalone AI console for Panyakorn's VPS-hosted Ollama stack, inspired by the current `panyakorn.com` dark emerald terminal theme.
+A standalone AI console for Panyakorn's VPS-hosted Ollama stack, using a Claude-like workspace layout with the `panyakorn.com` dark emerald visual system.
 
 ## Goals
 
 - Match the visual language of `panyakorn.com`:
   - dark emerald background
   - Geist/Noto Sans Thai typography
-  - terminal-like panels
+  - Claude-like left rail, centered conversation canvas, and floating composer
   - soft green accent glow
   - clean developer-dashboard layout
 - Prototype an Open WebUI-style chat interface.
