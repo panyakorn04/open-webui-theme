@@ -32,10 +32,12 @@ By default the production UI calls the same-origin Caddy proxy:
 /api/ai/chat
 ```
 
-Override for local backend testing:
+Override for local backend testing and local model menu testing:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8888 pnpm dev
+NEXT_PUBLIC_API_URL=http://localhost:8888 \
+NEXT_PUBLIC_AI_MODELS=panyakorn-local:latest,qwen2.5-coder:7b \
+pnpm dev
 ```
 
 ## Verification
@@ -49,6 +51,7 @@ NEXT_PUBLIC_API_URL= pnpm build
 
 Included:
 - live chat UI using TanStack AI React state with a custom backend SSE fetcher calling `NEXT_PUBLIC_API_URL/api/ai/chat/stream`
+- model selector populated from `NEXT_PUBLIC_AI_MODELS` and sent to the backend as `model`
 - local chat sessions/recents persisted in `localStorage`, with New chat creating a fresh session
 - sidebar navigation
 - model/status panel
@@ -66,7 +69,7 @@ Not included yet:
 Current production stack:
 
 ```text
-ai.panyakorn.com/api/* -> backend:8888 -> http://ollama:11434 -> panyakorn-local:latest
+ai.panyakorn.com/api/* -> backend:8888 -> http://ollama:11434 -> selected allowed Ollama model
 ```
 
 Production domain:

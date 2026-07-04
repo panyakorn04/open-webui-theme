@@ -2,8 +2,19 @@ import { EventType, type StreamChunk } from "@tanstack/ai/client";
 import type { ChatFetcher, UIMessage } from "@tanstack/ai-client";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
+const fallbackAiModel = "panyakorn-local:latest";
 
-export const aiModel = "panyakorn-local:latest";
+function parseModelList(value: string | undefined) {
+  const models = value
+    ?.split(",")
+    .map((model) => model.trim())
+    .filter(Boolean) ?? [];
+
+  return models.length > 0 ? models : [fallbackAiModel];
+}
+
+export const availableAiModels = parseModelList(process.env.NEXT_PUBLIC_AI_MODELS);
+export const defaultAiModel = availableAiModels[0] ?? fallbackAiModel;
 
 export type BackendChatMessage = {
   role: "system" | "user" | "assistant";
@@ -54,19 +65,23 @@ export function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage
     .slice(-10);
 }
 
-export const backendChatFetcher: ChatFetcher = ({ messages, runId, threadId }, { signal }) =>
-  streamBackendChat(messages as UIMessage[], runId, threadId, signal);
+export function createBackendChatFetcher(model: string): ChatFetcher {
+  return ({ messages, runId, threadId }, { signal }) =>
+    streamBackendChat(messages as UIMessage[], runId, threadId, signal, model);
+}
 
 async function* streamBackendChat(
   messages: UIMessage[],
   runId: string,
   threadId: string,
   signal: AbortSignal,
+  model: string,
 ): AsyncIterable<StreamChunk> {
   const response = await fetch(apiUrl("/api/ai/chat/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      model,
       messages: backendMessagesFromUI(messages),
       runId,
       threadId,
@@ -160,6 +175,7 @@ async function* streamBackendChatFallback(
   runId: string,
   threadId: string,
   signal: AbortSignal,
+  model = defaultAiModel,
 ): AsyncIterable<StreamChunk> {
   const startedAt = Date.now();
   const messageId = `assistant-${runId}`;
@@ -169,14 +185,14 @@ async function* streamBackendChatFallback(
     timestamp: startedAt,
     runId,
     threadId,
-    model: aiModel,
+    model,
   } as StreamChunk;
 
   try {
     const response = await fetch(apiUrl("/api/ai/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: backendMessagesFromUI(messages) }),
+      body: JSON.stringify({ model, messages: backendMessagesFromUI(messages) }),
       signal,
     });
 
@@ -230,7 +246,7 @@ async function* streamBackendChatFallback(
       timestamp: Date.now(),
       runId,
       threadId,
-      model: aiModel,
+      model,
       message: error instanceof Error ? error.message : "Unable to send prompt.",
       code: "BACKEND_CHAT_ERROR",
     } as StreamChunk;

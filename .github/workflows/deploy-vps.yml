@@ -22,6 +22,7 @@ jobs:
       IMAGE_TAR: open-webui-theme.tar
       PUBLIC_DOMAIN: ai.panyakorn.com
       NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_AI_MODELS: ${{ vars.NEXT_PUBLIC_AI_MODELS || 'panyakorn-local:latest' }}
 
     steps:
       - name: Checkout repository
@@ -41,6 +42,7 @@ jobs:
       - name: Build
         env:
           NEXT_PUBLIC_API_URL: ${{ env.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_AI_MODELS: ${{ env.NEXT_PUBLIC_AI_MODELS }}
         run: bun run build
 
       - name: Build Docker image tar
@@ -49,6 +51,7 @@ jobs:
           docker build \
             --platform linux/amd64 \
             --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
+            --build-arg NEXT_PUBLIC_AI_MODELS="$NEXT_PUBLIC_AI_MODELS" \
             -t "$IMAGE_NAME:$IMAGE_TAG" \
             -t "$IMAGE_NAME:latest" \
             .
@@ -107,6 +110,7 @@ jobs:
                 restart: unless-stopped
                 environment:
                   NEXT_PUBLIC_API_URL: ""
+                  NEXT_PUBLIC_AI_MODELS: "${{ env.NEXT_PUBLIC_AI_MODELS }}"
                 expose:
                   - "3000"
             YAML

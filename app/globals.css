@@ -459,6 +459,39 @@ textarea {
     background: var(--indigo-dim);
 }
 
+.model-select-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--accent-border);
+    border-radius: 999px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    white-space: nowrap;
+}
+
+.model-select-pill select {
+    max-width: 190px;
+    border: 0;
+    color: var(--fg);
+    background: transparent;
+    font: inherit;
+    outline: 0;
+}
+
+.model-select-pill select:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.model-select-pill option {
+    color: #0f172a;
+}
+
 .pill-dot {
     width: 6px;
     height: 6px;
@@ -811,8 +844,19 @@ textarea {
         display: none;
     }
 
-    .topbar-actions .pill.accent {
+    .model-select-pill {
+        max-width: 44vw;
+        min-height: 28px;
+        padding: 0 8px;
+        font-size: 10px;
+    }
+
+    .model-select-pill span {
         display: none;
+    }
+
+    .model-select-pill select {
+        max-width: 34vw;
     }
 
     .topbar-actions .pill {

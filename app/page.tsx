@@ -11,9 +11,10 @@ import {
     useState,
 } from "react";
 import {
-    aiModel,
     apiUrl,
-    backendChatFetcher,
+    availableAiModels,
+    createBackendChatFetcher,
+    defaultAiModel,
 } from "../lib/backend-chat-fetcher";
 
 const skills = [
@@ -79,9 +80,9 @@ function messageText(message: UIMessage) {
     return texts.join("\n");
 }
 
-function messageMeta(message: UIMessage) {
+function messageMeta(message: UIMessage, selectedModel: string) {
     if (message.id === "welcome") return "Panyakorn AI";
-    return message.role === "assistant" ? aiModel : "You";
+    return message.role === "assistant" ? selectedModel : "You";
 }
 
 function sessionTitleFromMessages(messages: UIMessage[]) {
@@ -202,6 +203,7 @@ function Sidebar({
     setMobileDrawerOpen,
     startNewChat,
     openSession,
+    selectedModel,
 }: {
     sortedSessions: ChatSession[];
     activeSessionId: string;
@@ -210,6 +212,7 @@ function Sidebar({
     setMobileDrawerOpen: (v: boolean) => void;
     startNewChat: () => void;
     openSession: (session: ChatSession) => void;
+    selectedModel: string;
 }) {
     return (
         <aside
@@ -283,8 +286,8 @@ function Sidebar({
                 <div className="model-card">
                     <span className="status-dot" aria-hidden="true" />
                     <div>
-                        <strong>panyakorn-local</strong>
-                        <span>{aiModel} · Ollama internal</span>
+                        <strong>{selectedModel}</strong>
+                        <span>Ollama internal · selectable</span>
                     </div>
                 </div>
             </div>
@@ -297,11 +300,13 @@ function MessageList({
     isLoading,
     error,
     messagesEndRef,
+    selectedModel,
 }: {
     messages: UIMessage[];
     isLoading: boolean;
     error: Error | undefined | null;
     messagesEndRef: RefObject<HTMLDivElement | null>;
+    selectedModel: string;
 }) {
     return (
         <div
@@ -333,7 +338,7 @@ function MessageList({
                         )}
                         <div className="bubble">
                             <p className="message-meta">
-                                {messageMeta(message)}
+                                {messageMeta(message, selectedModel)}
                             </p>
                             <p>{content}</p>
                         </div>
@@ -388,7 +393,13 @@ function MessageList({
     );
 }
 
-function ContextPanel({ error }: { error: Error | undefined | null }) {
+function ContextPanel({
+    error,
+    selectedModel,
+}: {
+    error: Error | undefined | null;
+    selectedModel: string;
+}) {
     return (
         <aside className="context-panel" aria-label="Context and skills">
 
@@ -431,7 +442,7 @@ function ContextPanel({ error }: { error: Error | undefined | null }) {
                 </code>
                 <code>AI_CLIENT=TanStack AI SSE stream</code>
                 <code>CHAT_SESSIONS=localStorage</code>
-                <code>BACKEND_MODEL={aiModel}</code>
+                <code>BACKEND_MODEL={selectedModel}</code>
                 <code>OLLAMA_URL=internal://ollama:11434</code>
             </section>
         </aside>
@@ -452,9 +463,14 @@ export default function Home() {
         defaultSessionRef.current.id,
     );
     const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+    const [selectedModel, setSelectedModel] = useState(defaultAiModel);
     const hasLoadedStoredSessionsRef = useRef(false);
+    const chatFetcher = useMemo(
+        () => createBackendChatFetcher(selectedModel),
+        [selectedModel],
+    );
     const { error, isLoading, messages, sendMessage, setMessages } = useChat({
-        fetcher: backendChatFetcher,
+        fetcher: chatFetcher,
         initialMessages,
         devtools: { name: "Panyakorn AI Console" },
     });
@@ -635,6 +651,7 @@ export default function Home() {
                     setMobileDrawerOpen={setMobileDrawerOpen}
                     startNewChat={startNewChat}
                     openSession={openSession}
+                    selectedModel={selectedModel}
                 />
 
                 {/* ── Chat Panel ──────────────────────────── */}
@@ -666,9 +683,23 @@ export default function Home() {
                                 <span className="pill-dot" aria-hidden="true" />
                                 {statusLabel}
                             </span>
-                            <span className="pill accent">
-                                TanStack AI · {aiModel}
-                            </span>
+                            <label className="model-select-pill">
+                                <span>Model</span>
+                                <select
+                                    value={selectedModel}
+                                    onChange={(event) =>
+                                        setSelectedModel(event.target.value)
+                                    }
+                                    disabled={isLoading}
+                                    aria-label="Select AI model"
+                                >
+                                    {availableAiModels.map((model) => (
+                                        <option key={model} value={model}>
+                                            {model}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
                         </div>
                     </header>
 
@@ -695,6 +726,7 @@ export default function Home() {
                         isLoading={isLoading}
                         error={error}
                         messagesEndRef={messagesEndRef}
+                        selectedModel={selectedModel}
                     />
 
                     {/* Composer */}
@@ -733,7 +765,7 @@ export default function Home() {
                 </section>
 
                 {/* ── Context Panel ────────────────────────── */}
-                <ContextPanel error={error} />
+                <ContextPanel error={error} selectedModel={selectedModel} />
             </main>
         </>
     );
