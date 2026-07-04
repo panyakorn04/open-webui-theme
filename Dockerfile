@@ -1,23 +1,21 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS base
+FROM oven/bun:1.3.14-alpine AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 FROM base AS builder
-RUN corepack enable
 ARG NEXT_PUBLIC_API_URL=https://api.panyakorn.com
 ARG NEXT_PUBLIC_AI_MODELS=panyakorn-local:latest
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_AI_MODELS=$NEXT_PUBLIC_AI_MODELS
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm build
+RUN bun run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
