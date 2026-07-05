@@ -5,7 +5,8 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "skills:check": "test -f .agents/skills/nextjs-best-practices/SKILL.md && test -f .agents/skills/nextjs-code-review/SKILL.md && test -f .agents/skills/nextjs-code-review/references/app-router-patterns.md && test -f .agents/skills/nextjs-code-review/references/performance.md && test -f .agents/skills/nextjs-code-review/references/server-components.md",
+    "build": "bun run skills:check && next build",
     "start": "next start",
     "lint": "tsc --noEmit"
   },

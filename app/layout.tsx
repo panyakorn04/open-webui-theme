@@ -23,6 +23,9 @@ const notoSansThai = Noto_Sans_Thai({
 export const metadata: Metadata = {
   title: "Panyakorn AI Console",
   description: "Open WebUI themed shell inspired by panyakorn.com.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  packages: write
+  security-events: write
 
 defaults:
   run:
@@ -22,12 +24,13 @@ concurrency:
 
 env:
   BUN_VERSION: 1.3.14
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
   NEXT_PUBLIC_API_URL: ""
   NEXT_PUBLIC_AI_MODELS: ${{ vars.NEXT_PUBLIC_AI_MODELS || 'panyakorn-local:latest' }}
 
 jobs:
   validate:
-    name: Lint and build
+    name: Lint, test, and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -54,27 +57,113 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Test if script exists
+        run: |
+          set -euo pipefail
+          if bun pm pkg get scripts.test | grep -vq '^null$'; then
+            bun run test
+          else
+            echo "No test script configured; skipping."
+          fi
+
+      - name: Verify required agent skills
+        run: bun run skills:check
+
       - name: Build
         run: bun run build
 
-  deploy:
-    name: Deploy to VPS
+  image:
+    name: Build, scan, and publish image
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: validate
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    environment: production
 
-    env:
-      IMAGE_NAME: open-webui-theme
-      IMAGE_TAG: ${{ github.sha }}
-      IMAGE_TAR: open-webui-theme.tar
-      PUBLIC_DOMAIN: ai.panyakorn.com
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      tag: ${{ steps.image.outputs.tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set image tags
+        id: image
+        run: |
+          set -euo pipefail
+          image="$(echo "${REGISTRY_IMAGE}" | tr '[:upper:]' '[:lower:]')"
+          tag="${GITHUB_SHA}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE=${image}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${tag}" >> "$GITHUB_ENV"
+          echo "FULL_IMAGE=${image}:${tag}" >> "$GITHUB_ENV"
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image with GitHub Actions cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_AI_MODELS=${{ env.NEXT_PUBLIC_AI_MODELS }}
+          tags: |
+            ${{ env.FULL_IMAGE }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.FULL_IMAGE }}
+          format: table
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_AI_MODELS=${{ env.NEXT_PUBLIC_AI_MODELS }}
+          tags: |
+            ${{ env.FULL_IMAGE }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: image
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment: production
+
+    env:
+      DEPLOY_IMAGE: ${{ needs.image.outputs.image }}:${{ needs.image.outputs.tag }}
+      IMAGE_REPOSITORY: ${{ needs.image.outputs.image }}
+      PUBLIC_DOMAIN: ai.panyakorn.com
+      IMAGE_RETENTION: "5"
+
+    steps:
       - name: Check required deployment secrets
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -91,18 +180,6 @@ jobs:
           done
           exit "$missing"
 
-      - name: Build Docker image tar
-        run: |
-          set -euo pipefail
-          docker build \
-            --platform linux/amd64 \
-            --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" \
-            --build-arg NEXT_PUBLIC_AI_MODELS="$NEXT_PUBLIC_AI_MODELS" \
-            -t "$IMAGE_NAME:$IMAGE_TAG" \
-            -t "$IMAGE_NAME:latest" \
-            .
-          docker save "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest" -o "$IMAGE_TAR"
-
       - name: Prepare SSH key and known hosts
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -114,49 +191,58 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
-      - name: Upload image tar to VPS
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-        run: |
-          set -euo pipefail
-          tar -cf - "$IMAGE_TAR" | ssh \
-            -i ~/.ssh/deploy_key \
-            -o ConnectTimeout=120 \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=20 \
-            "$VPS_USER@$VPS_HOST" \
-            'set -euo pipefail; mkdir -p /tmp/open-webui-theme-upload; rm -f /tmp/open-webui-theme-upload/open-webui-theme.tar; tar -xf - -C /tmp/open-webui-theme-upload'
-
-      - name: Deploy on VPS
+      - name: Deploy on VPS with rollback
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_IMAGE: ${{ env.DEPLOY_IMAGE }}
+          IMAGE_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
+          NEXT_PUBLIC_AI_MODELS: ${{ env.NEXT_PUBLIC_AI_MODELS }}
+          IMAGE_RETENTION: ${{ env.IMAGE_RETENTION }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_IMAGE,IMAGE_REPOSITORY,NEXT_PUBLIC_AI_MODELS,IMAGE_RETENTION
           script: |
             set -euo pipefail
 
             cd /opt/apps
 
+            compose_files="-f docker-compose.yml -f docker-compose.open-webui-theme.yml"
             ts="$(date +%Y%m%d-%H%M%S)"
             test -f docker-compose.yml
             test -f caddy/Caddyfile
             cp docker-compose.yml "docker-compose.yml.bak.open-webui-theme.${ts}"
             cp caddy/Caddyfile "caddy/Caddyfile.bak.open-webui-theme.${ts}"
+            if [ -f docker-compose.open-webui-theme.yml ]; then
+              cp docker-compose.open-webui-theme.yml "docker-compose.open-webui-theme.yml.bak.${ts}"
+            fi
 
-            cat > docker-compose.open-webui-theme.yml <<'YAML'
+            previous_image=""
+            if docker inspect open-webui-theme >/dev/null 2>&1; then
+              previous_image="$(docker inspect --format='{{.Config.Image}}' open-webui-theme || true)"
+            fi
+            if [ -z "$previous_image" ] && [ -f docker-compose.open-webui-theme.yml ]; then
+              previous_image="$(grep -E '^[[:space:]]*image:' docker-compose.open-webui-theme.yml | head -1 | awk '{print $2}' || true)"
+            fi
+            echo "Previous image: ${previous_image:-none}"
+            echo "Deploy image: ${DEPLOY_IMAGE}"
+
+            write_compose() {
+              local image="$1"
+              cat > docker-compose.open-webui-theme.yml <<YAML
             services:
               open-webui-theme:
-                image: open-webui-theme:latest
+                image: ${image}
                 container_name: open-webui-theme
                 restart: unless-stopped
                 environment:
                   NEXT_PUBLIC_API_URL: ""
-                  NEXT_PUBLIC_AI_MODELS: "${{ env.NEXT_PUBLIC_AI_MODELS }}"
+                  NEXT_PUBLIC_AI_MODELS: "${NEXT_PUBLIC_AI_MODELS}"
                 expose:
                   - "3000"
             YAML
+            }
 
             python3 - <<'PY'
             from pathlib import Path
@@ -195,24 +281,55 @@ jobs:
             path.write_text(text)
             PY
 
-            docker load -i /tmp/open-webui-theme-upload/open-webui-theme.tar
-            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml config >/dev/null
-            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml up -d open-webui-theme caddy
-            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml restart caddy
-            docker compose -f docker-compose.yml -f docker-compose.open-webui-theme.yml ps open-webui-theme caddy
+            health_check() {
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
+                  echo "open-webui-theme is reachable from caddy"
+                  return 0
+                fi
+                echo "Waiting for open-webui-theme to become ready... attempt ${attempt}/10"
+                docker logs --tail=20 open-webui-theme || true
+                sleep 3
+              done
+              return 1
+            }
 
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
-                echo "open-webui-theme is reachable from caddy"
-                exit 0
-              fi
-              echo "Waiting for open-webui-theme to become ready... attempt ${attempt}/10"
-              docker logs --tail=20 open-webui-theme || true
-              sleep 3
-            done
+            write_compose "$DEPLOY_IMAGE"
+            docker compose $compose_files config >/dev/null
+            docker compose $compose_files pull open-webui-theme
+            docker compose $compose_files up -d open-webui-theme caddy
+            docker compose $compose_files restart caddy
+            docker compose $compose_files ps open-webui-theme caddy
 
-            echo "open-webui-theme did not become reachable from caddy"
+            if health_check; then
+              echo "$DEPLOY_IMAGE" > .open-webui-theme-current-image
+              docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}' "$IMAGE_REPOSITORY" \
+                | awk 'NR > '${IMAGE_RETENTION}' {print $1}' \
+                | xargs -r docker image rm || true
+              docker image prune -f --filter "until=168h" || true
+              exit 0
+            fi
+
+            echo "Health check failed for ${DEPLOY_IMAGE}"
             docker logs --tail=100 open-webui-theme || true
+
+            if [ -n "$previous_image" ] && [ "$previous_image" != "$DEPLOY_IMAGE" ]; then
+              echo "Rolling back to ${previous_image}"
+              write_compose "$previous_image"
+              docker compose $compose_files config >/dev/null
+              docker compose $compose_files pull open-webui-theme || true
+              docker compose $compose_files up -d open-webui-theme caddy
+              docker compose $compose_files restart caddy
+              if health_check; then
+                echo "$previous_image" > .open-webui-theme-current-image
+                echo "Rollback succeeded"
+              else
+                echo "::error::Rollback health check failed"
+              fi
+            else
+              echo "::error::No previous image available for rollback"
+            fi
+
             exit 1
 
       - name: Verify public domain if DNS is ready
@@ -233,6 +350,32 @@ jobs:
           done
           echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN} even though DNS resolves."
           exit 1
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set; skipping failure notification."
+            exit 0
+          fi
+          set -euo pipefail
+          payload=$(python3 - <<'PY'
+          import json
+          import os
+
+          data = {
+              "content": (
+                  "🚨 open-webui-theme deploy failed\n"
+                  f"Workflow: {os.environ['GITHUB_WORKFLOW']}\n"
+                  f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              )
+          }
+          print(json.dumps(data))
+          PY
+          )
+          curl -fsS -H 'Content-Type: application/json' -d "$payload" "$DISCORD_WEBHOOK_URL"
 
       - name: Cleanup SSH key
         if: always()
