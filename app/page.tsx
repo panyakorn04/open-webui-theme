@@ -836,8 +836,7 @@ export default function Home() {
                         <div className="empty-state">
                             <div className="empty-state-inner">
                                 <h2>
-                                    <span aria-hidden="true">✳</span>
-                                    Back at it, panyakorn
+                                    You can start when you're ready.
                                 </h2>
                                 <div className="composer-card empty-composer-card">
                                     <ComposerForm
