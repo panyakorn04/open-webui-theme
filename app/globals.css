@@ -503,7 +503,6 @@ textarea {
 }
 
 .empty-composer-card .composer {
-    grid-template-columns: minmax(0, 1fr) minmax(136px, auto) 42px;
     min-height: 126px;
     border-radius: 22px;
 }
@@ -782,11 +781,10 @@ textarea {
 }
 
 .composer {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(136px, auto) 42px;
-    align-items: end;
-    gap: 10px;
-    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 10px 8px;
     border: 1px solid rgba(255 255 255 / 0.12);
     border-radius: 26px;
     background:
@@ -803,7 +801,7 @@ textarea {
     min-height: 50px;
     max-height: 170px;
     resize: none;
-    padding: 14px 6px 12px 10px;
+    padding: 12px 8px 8px 10px;
     border: 0;
     color: var(--fg);
     background: transparent;
@@ -815,27 +813,56 @@ textarea {
     color: var(--fg-subtle);
 }
 
+.composer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 2px;
+}
+
 .composer-model-select {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
     min-width: 0;
-    height: 42px;
-    padding: 0 12px;
-    border: 1px solid var(--accent-border);
-    border-radius: 16px;
-    color: var(--accent);
-    background: var(--accent-dim);
+    height: 38px;
+    padding: 0 26px 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--fg-subtle);
+    background: rgba(255 255 255 / 0.05);
     font-family: var(--font-mono);
     font-size: 10.5px;
     white-space: nowrap;
+    transition: border-color var(--dur) var(--ease);
+}
+
+.composer-model-select:focus-within {
+    border-color: var(--border-strong);
+}
+
+.composer-model-select::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
 }
 
 .composer-model-select select {
     width: min(26vw, 188px);
     min-width: 0;
+    padding-right: 4px;
     border: 0;
+    -webkit-appearance: none;
+    appearance: none;
     color: var(--fg);
     background: transparent;
     font: inherit;
@@ -853,10 +880,11 @@ textarea {
 
 .send-btn {
     display: grid;
+    flex: 0 0 auto;
     place-items: center;
-    width: 42px;
-    height: 42px;
-    border-radius: 16px;
+    width: 38px;
+    height: 38px;
+    border-radius: 14px;
     color: #07140d;
     background: linear-gradient(135deg, #bbf7d0 0%, var(--accent) 100%);
     box-shadow: var(--shadow-btn);
@@ -1025,36 +1053,31 @@ textarea {
     }
 
     .composer {
-        grid-template-columns: minmax(0, 1fr) minmax(112px, auto) 40px;
         border-radius: 22px;
-        padding: 8px;
+        padding: 8px 8px 6px;
     }
 
     .composer-model-select {
-        height: 40px;
-        padding: 0 9px;
-        border-radius: 15px;
+        height: 38px;
+        padding: 0 22px 0 10px;
+        border-radius: 13px;
         font-size: 10px;
     }
 
-    .composer-model-select span {
-        display: none;
-    }
-
     .composer-model-select select {
-        width: min(28vw, 128px);
+        width: min(38vw, 148px);
     }
 
     .composer textarea {
         min-height: 46px;
         max-height: min(140px, calc(var(--visual-viewport-height, 100dvh) * 0.32));
-        padding: 12px 4px 10px 8px;
+        padding: 10px 4px 8px 8px;
     }
 
     .send-btn {
-        width: 40px;
-        height: 40px;
-        border-radius: 15px;
+        width: 38px;
+        height: 38px;
+        border-radius: 13px;
     }
 }
 

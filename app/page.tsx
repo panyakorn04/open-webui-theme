@@ -487,29 +487,33 @@ function ComposerForm({
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
             />
-            <label className="composer-model-select">
-                <span>Model</span>
-                <select
-                    value={selectedModel}
-                    onChange={(event) => setSelectedModel(event.target.value)}
-                    disabled={isLoading}
-                    aria-label="Select AI model"
+            <div className="composer-toolbar">
+                <label className="composer-model-select">
+                    <span>Model</span>
+                    <select
+                        value={selectedModel}
+                        onChange={(event) =>
+                            setSelectedModel(event.target.value)
+                        }
+                        disabled={isLoading}
+                        aria-label="Select AI model"
+                    >
+                        {availableAiModels.map((model) => (
+                            <option key={model} value={model}>
+                                {model}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <button
+                    className="send-btn"
+                    type="submit"
+                    disabled={isLoading || prompt.trim() === ""}
+                    aria-label="Send message"
                 >
-                    {availableAiModels.map((model) => (
-                        <option key={model} value={model}>
-                            {model}
-                        </option>
-                    ))}
-                </select>
-            </label>
-            <button
-                className="send-btn"
-                type="submit"
-                disabled={isLoading || prompt.trim() === ""}
-                aria-label="Send message"
-            >
-                <IconArrowUp />
-            </button>
+                    <IconArrowUp />
+                </button>
+            </div>
         </form>
     );
 }
