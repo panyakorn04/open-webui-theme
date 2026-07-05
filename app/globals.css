@@ -288,6 +288,18 @@ textarea {
     background: rgba(255 255 255 / 0.16);
 }
 
+.conversation-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 30px;
+    align-items: center;
+    gap: 4px;
+}
+
+.conversation-row:hover .delete-conversation,
+.conversation-row:focus-within .delete-conversation {
+    opacity: 1;
+}
+
 .conversation {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -321,6 +333,37 @@ textarea {
     color: var(--fg);
     background: rgba(255 255 255 / 0.09);
     border-color: var(--border);
+}
+
+.conversation-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.delete-conversation {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    color: var(--fg-subtle);
+    background: transparent;
+    opacity: 0;
+    transition:
+        opacity var(--dur) var(--ease),
+        color var(--dur) var(--ease),
+        background var(--dur) var(--ease);
+}
+
+.delete-conversation:hover {
+    color: #fecaca;
+    background: rgba(239 68 68 / 0.14);
+}
+
+.delete-conversation:focus-visible {
+    opacity: 1;
 }
 
 .dot {

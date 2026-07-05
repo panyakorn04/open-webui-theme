@@ -110,6 +110,19 @@ function readStoredSessions() {
     }
 }
 
+function writeStoredSessions(activeSessionId: string, sessions: ChatSession[]) {
+    if (typeof window === "undefined") return;
+
+    try {
+        window.localStorage.setItem(
+            chatSessionsStorageKey,
+            JSON.stringify({ activeSessionId, sessions }),
+        );
+    } catch {
+        // Ignore storage failures so chat remains usable in private mode/quota limits.
+    }
+}
+
 /* ── SVG Icons ─────────────────────────────────────── */
 function IconPlus() {
     return (
@@ -180,6 +193,27 @@ function IconX() {
     );
 }
 
+function IconTrash() {
+    return (
+        <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+            <path d="M10 11v5M14 11v5" />
+        </svg>
+    );
+}
+
 const ambientBg = <div className="ambient" aria-hidden="true" />;
 
 /* ── Sub-components ───────────────────────────────── */
@@ -191,6 +225,7 @@ function Sidebar({
     setMobileDrawerOpen,
     startNewChat,
     openSession,
+    deleteSession,
     selectedModel,
 }: {
     sortedSessions: ChatSession[];
@@ -200,6 +235,7 @@ function Sidebar({
     setMobileDrawerOpen: (v: boolean) => void;
     startNewChat: () => void;
     openSession: (session: ChatSession) => void;
+    deleteSession: (session: ChatSession) => void;
     selectedModel: string;
 }) {
     return (
@@ -243,27 +279,47 @@ function Sidebar({
                     {sortedSessions.map((session) => {
                         const active = session.id === activeSessionId;
                         return (
-                            <button
+                            <div
                                 key={session.id}
                                 className={
                                     active
-                                        ? "conversation active"
-                                        : "conversation"
+                                        ? "conversation-row active"
+                                        : "conversation-row"
                                 }
-                                type="button"
-                                aria-current={active ? "page" : undefined}
-                                disabled={isLoading && !active}
-                                title={session.title}
-                                onClick={() => openSession(session)}
                             >
-                                <span
+                                <button
                                     className={
-                                        active ? "dot" : "dot dot-dim"
+                                        active
+                                            ? "conversation active"
+                                            : "conversation"
                                     }
-                                    aria-hidden="true"
-                                />
-                                {session.title}
-                            </button>
+                                    type="button"
+                                    aria-current={active ? "page" : undefined}
+                                    disabled={isLoading && !active}
+                                    title={session.title}
+                                    onClick={() => openSession(session)}
+                                >
+                                    <span
+                                        className={
+                                            active ? "dot" : "dot dot-dim"
+                                        }
+                                        aria-hidden="true"
+                                    />
+                                    <span className="conversation-title">
+                                        {session.title}
+                                    </span>
+                                </button>
+                                <button
+                                    className="delete-conversation"
+                                    type="button"
+                                    aria-label={`Delete recent chat: ${session.title}`}
+                                    title="Delete recent"
+                                    disabled={isLoading}
+                                    onClick={() => deleteSession(session)}
+                                >
+                                    <IconTrash />
+                                </button>
+                            </div>
                         );
                     })}
                 </div>
@@ -603,14 +659,7 @@ export default function Home() {
                 };
             });
 
-            try {
-                window.localStorage.setItem(
-                    chatSessionsStorageKey,
-                    JSON.stringify({ activeSessionId, sessions: updated }),
-                );
-            } catch {
-                // Ignore storage failures so chat remains usable in private mode/quota limits.
-            }
+            writeStoredSessions(activeSessionId, updated);
 
             return updated;
         });
@@ -678,6 +727,32 @@ export default function Home() {
         setMobileDrawerOpen(false);
     }
 
+    function deleteSession(sessionToDelete: ChatSession) {
+        if (isLoading) return;
+
+        const remainingSessions = sessions.filter(
+            (session) => session.id !== sessionToDelete.id,
+        );
+        const nextSessions = remainingSessions.length
+            ? remainingSessions
+            : [createChatSession()];
+
+        if (sessionToDelete.id === activeSessionId) {
+            const nextActiveSession = nextSessions.toSorted(
+                (a, b) => b.updatedAt - a.updatedAt,
+            )[0];
+            setSessions(nextSessions);
+            setActiveSessionId(nextActiveSession.id);
+            setMessages(nextActiveSession.messages);
+            setPrompt("");
+            setMobileDrawerOpen(false);
+            writeStoredSessions(nextActiveSession.id, nextSessions);
+        } else {
+            setSessions(nextSessions);
+            writeStoredSessions(activeSessionId, nextSessions);
+        }
+    }
+
     return (
         <>
             {/* Ambient background blobs */}
@@ -701,6 +776,7 @@ export default function Home() {
                     setMobileDrawerOpen={setMobileDrawerOpen}
                     startNewChat={startNewChat}
                     openSession={openSession}
+                    deleteSession={deleteSession}
                     selectedModel={selectedModel}
                 />
 
