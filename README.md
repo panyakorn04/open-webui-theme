@@ -16,8 +16,8 @@ A standalone AI console for Panyakorn's VPS-hosted Ollama stack, using a Claude-
 ## Local development
 
 ```bash
-pnpm install
-pnpm dev
+bun install
+bun run dev
 ```
 
 Open:
@@ -37,14 +37,14 @@ Override for local backend testing and local model menu testing:
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8888 \
 NEXT_PUBLIC_AI_MODELS=panyakorn-local:latest,qwen2.5-coder:7b \
-pnpm dev
+bun run dev
 ```
 
 ## Verification
 
 ```bash
-pnpm lint
-NEXT_PUBLIC_API_URL= pnpm build
+bun run lint
+NEXT_PUBLIC_API_URL= bun run build
 ```
 
 ## Current scope
