@@ -398,6 +398,77 @@ textarea {
     background: transparent;
 }
 
+.chat-panel.empty {
+    grid-template-rows: auto minmax(0, 1fr);
+}
+
+.chat-panel.empty .topbar {
+    border-bottom-color: transparent;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.chat-panel.empty .topbar-title,
+.chat-panel.empty .topbar-actions {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.empty-state {
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    padding: 24px clamp(18px, 4vw, 48px) 12vh;
+}
+
+.empty-state-inner {
+    width: min(100%, 720px);
+    animation: msg-in 240ms var(--ease) both;
+}
+
+.empty-state h2 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 0 0 24px;
+    color: var(--fg);
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 520;
+    line-height: 1.1;
+    letter-spacing: -0.055em;
+    text-align: center;
+}
+
+.empty-state h2 span {
+    color: #fb7f4c;
+    font-size: 0.82em;
+    line-height: 1;
+    filter: drop-shadow(0 0 18px rgba(251 127 76 / 0.32));
+}
+
+.empty-composer-card {
+    width: 100%;
+    padding: 0;
+}
+
+.empty-composer-card .quick-prompts {
+    justify-content: center;
+    margin: 14px 0 0;
+    padding: 0 4px 2px;
+}
+
+.empty-composer-card .composer {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    min-height: 126px;
+    border-radius: 22px;
+}
+
+.empty-composer-card .composer textarea {
+    min-height: 86px;
+}
+
 .topbar {
     display: flex;
     align-items: center;

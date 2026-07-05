@@ -32,19 +32,7 @@ const quickPrompts = [
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 const chatSessionsStorageKey = "panyakorn-ai-chat-sessions:v1";
 
-const initialMessages: UIMessage[] = [
-    {
-        id: "welcome",
-        role: "assistant",
-        parts: [
-            {
-                type: "text",
-                content:
-                    "สวัสดีครับ ตอนนี้ AI Console เชื่อมกับ backend API และ Ollama local model แล้ว ลองพิมพ์คำถามได้เลยครับ",
-            },
-        ],
-    },
-];
+const initialMessages: UIMessage[] = [];
 
 type ChatSession = {
     id: string;
@@ -393,6 +381,64 @@ function MessageList({
     );
 }
 
+function QuickPrompts({
+    isLoading,
+    sendPrompt,
+}: {
+    isLoading: boolean;
+    sendPrompt: (nextPrompt: string) => Promise<void>;
+}) {
+    return (
+        <div className="quick-prompts">
+            {quickPrompts.map((qp) => (
+                <button
+                    key={qp}
+                    type="button"
+                    onClick={() => void sendPrompt(qp)}
+                    disabled={isLoading}
+                >
+                    {qp}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function ComposerForm({
+    prompt,
+    setPrompt,
+    isLoading,
+    handleSubmit,
+    handleKeyDown,
+}: {
+    prompt: string;
+    setPrompt: (nextPrompt: string) => void;
+    isLoading: boolean;
+    handleSubmit: (e: FormEvent<HTMLFormElement>) => void;
+    handleKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
+    return (
+        <form className="composer" onSubmit={handleSubmit}>
+            <textarea
+                aria-label="Prompt — press Enter to send, Shift+Enter for new line"
+                placeholder="พิมพ์ข้อความ… (Enter ส่ง / Shift+Enter ขึ้นบรรทัด)"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading}
+            />
+            <button
+                className="send-btn"
+                type="submit"
+                disabled={isLoading || prompt.trim() === ""}
+                aria-label="Send message"
+            >
+                <IconArrowUp />
+            </button>
+        </form>
+    );
+}
+
 function ContextPanel({
     error,
     selectedModel,
@@ -587,6 +633,10 @@ export default function Home() {
 
     const statusLabel =
         isLoading ? "Thinking…" : error ? "API error" : "Connected";
+    const hasStartedConversation = messages.some(
+        (message) => message.role === "user" || message.id !== "welcome",
+    );
+    const showEmptyState = !hasStartedConversation && !isLoading && !error;
 
     async function sendPrompt(nextPrompt: string) {
         const trimmed = nextPrompt.trim();
@@ -655,7 +705,10 @@ export default function Home() {
                 />
 
                 {/* ── Chat Panel ──────────────────────────── */}
-                <section className="chat-panel" aria-label="AI chat">
+                <section
+                    className={`chat-panel${showEmptyState ? " empty" : ""}`}
+                    aria-label="AI chat"
+                >
                     {/* Topbar */}
                     <header className="topbar">
                         <button
@@ -703,65 +756,70 @@ export default function Home() {
                         </div>
                     </header>
 
-                    {/* Hero strip */}
-                    <div className="hero-strip">
-                        <div>
-                            <span className="terminal-label">
-                                {apiUrl("/api/ai/chat/stream")}
-                            </span>
-                            <h3>
-                                Private AI workspace for coding, automation
-                                &amp; VPS ops.
-                            </h3>
+                    {showEmptyState ? (
+                        <div className="empty-state">
+                            <div className="empty-state-inner">
+                                <h2>
+                                    <span aria-hidden="true">✳</span>
+                                    Back at it, panyakorn
+                                </h2>
+                                <div className="composer-card empty-composer-card">
+                                    <ComposerForm
+                                        prompt={prompt}
+                                        setPrompt={setPrompt}
+                                        isLoading={isLoading}
+                                        handleSubmit={handleSubmit}
+                                        handleKeyDown={handleKeyDown}
+                                    />
+                                    <QuickPrompts
+                                        isLoading={isLoading}
+                                        sendPrompt={sendPrompt}
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        <div className="signal-card">
-                            <span>Backend status</span>
-                            <strong>{error ? "Check API" : "Ready"}</strong>
-                        </div>
-                    </div>
+                    ) : (
+                        <>
+                            {/* Hero strip */}
+                            <div className="hero-strip">
+                                <div>
+                                    <span className="terminal-label">
+                                        {apiUrl("/api/ai/chat/stream")}
+                                    </span>
+                                    <h3>
+                                        Private AI workspace for coding,
+                                        automation &amp; VPS ops.
+                                    </h3>
+                                </div>
+                                <div className="signal-card">
+                                    <span>Backend status</span>
+                                    <strong>
+                                        {error ? "Check API" : "Ready"}
+                                    </strong>
+                                </div>
+                            </div>
 
-                    {/* Messages */}
-                    <MessageList
-                        messages={messages}
-                        isLoading={isLoading}
-                        error={error}
-                        messagesEndRef={messagesEndRef}
-                        selectedModel={selectedModel}
-                    />
-
-                    {/* Composer */}
-                    <div className="composer-card">
-                        <div className="quick-prompts">
-                            {quickPrompts.map((qp) => (
-                                <button
-                                    key={qp}
-                                    type="button"
-                                    onClick={() => void sendPrompt(qp)}
-                                    disabled={isLoading}
-                                >
-                                    {qp}
-                                </button>
-                            ))}
-                        </div>
-                        <form className="composer" onSubmit={handleSubmit}>
-                            <textarea
-                                aria-label="Prompt — press Enter to send, Shift+Enter for new line"
-                                placeholder="พิมพ์ข้อความ… (Enter ส่ง / Shift+Enter ขึ้นบรรทัด)"
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                disabled={isLoading}
+                            {/* Messages */}
+                            <MessageList
+                                messages={messages}
+                                isLoading={isLoading}
+                                error={error}
+                                messagesEndRef={messagesEndRef}
+                                selectedModel={selectedModel}
                             />
-                            <button
-                                className="send-btn"
-                                type="submit"
-                                disabled={isLoading || prompt.trim() === ""}
-                                aria-label="Send message"
-                            >
-                                <IconArrowUp />
-                            </button>
-                        </form>
-                    </div>
+
+                            {/* Composer */}
+                            <div className="composer-card">
+                                <ComposerForm
+                                    prompt={prompt}
+                                    setPrompt={setPrompt}
+                                    isLoading={isLoading}
+                                    handleSubmit={handleSubmit}
+                                    handleKeyDown={handleKeyDown}
+                                />
+                            </div>
+                        </>
+                    )}
                 </section>
 
                 {/* ── Context Panel ────────────────────────── */}
