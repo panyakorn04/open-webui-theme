@@ -194,146 +194,153 @@ jobs:
           fi
 
       - name: Deploy on VPS with rollback
-        uses: appleboy/ssh-action@v1.0.3
         env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
           DEPLOY_IMAGE: ${{ env.DEPLOY_IMAGE }}
           IMAGE_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
           NEXT_PUBLIC_AI_MODELS: ${{ env.NEXT_PUBLIC_AI_MODELS }}
           IMAGE_RETENTION: ${{ env.IMAGE_RETENTION }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: DEPLOY_IMAGE,IMAGE_REPOSITORY,NEXT_PUBLIC_AI_MODELS,IMAGE_RETENTION
-          script: |
-            set -euo pipefail
+        run: |
+          set -euo pipefail
+          remote_env=$(printf 'DEPLOY_IMAGE=%q IMAGE_REPOSITORY=%q NEXT_PUBLIC_AI_MODELS=%q IMAGE_RETENTION=%q' \
+            "$DEPLOY_IMAGE" "$IMAGE_REPOSITORY" "$NEXT_PUBLIC_AI_MODELS" "$IMAGE_RETENTION")
+          ssh -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=60 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            "${VPS_USER}@${VPS_HOST}" \
+            "${remote_env} bash -se" <<'REMOTE_SCRIPT'
+          set -euo pipefail
 
-            cd /opt/apps
+          cd /opt/apps
 
-            compose_files="-f docker-compose.yml -f docker-compose.open-webui-theme.yml"
-            ts="$(date +%Y%m%d-%H%M%S)"
-            test -f docker-compose.yml
-            test -f caddy/Caddyfile
-            cp docker-compose.yml "docker-compose.yml.bak.open-webui-theme.${ts}"
-            cp caddy/Caddyfile "caddy/Caddyfile.bak.open-webui-theme.${ts}"
-            if [ -f docker-compose.open-webui-theme.yml ]; then
-              cp docker-compose.open-webui-theme.yml "docker-compose.open-webui-theme.yml.bak.${ts}"
-            fi
+          compose_files="-f docker-compose.yml -f docker-compose.open-webui-theme.yml"
+          ts="$(date +%Y%m%d-%H%M%S)"
+          test -f docker-compose.yml
+          test -f caddy/Caddyfile
+          cp docker-compose.yml "docker-compose.yml.bak.open-webui-theme.${ts}"
+          cp caddy/Caddyfile "caddy/Caddyfile.bak.open-webui-theme.${ts}"
+          if [ -f docker-compose.open-webui-theme.yml ]; then
+            cp docker-compose.open-webui-theme.yml "docker-compose.open-webui-theme.yml.bak.${ts}"
+          fi
 
-            previous_image=""
-            if docker inspect open-webui-theme >/dev/null 2>&1; then
-              previous_image="$(docker inspect --format='{{.Config.Image}}' open-webui-theme || true)"
-            fi
-            if [ -z "$previous_image" ] && [ -f docker-compose.open-webui-theme.yml ]; then
-              previous_image="$(grep -E '^[[:space:]]*image:' docker-compose.open-webui-theme.yml | head -1 | awk '{print $2}' || true)"
-            fi
-            echo "Previous image: ${previous_image:-none}"
-            echo "Deploy image: ${DEPLOY_IMAGE}"
+          previous_image=""
+          if docker inspect open-webui-theme >/dev/null 2>&1; then
+            previous_image="$(docker inspect --format='{{.Config.Image}}' open-webui-theme || true)"
+          fi
+          if [ -z "$previous_image" ] && [ -f docker-compose.open-webui-theme.yml ]; then
+            previous_image="$(grep -E '^[[:space:]]*image:' docker-compose.open-webui-theme.yml | head -1 | awk '{print $2}' || true)"
+          fi
+          echo "Previous image: ${previous_image:-none}"
+          echo "Deploy image: ${DEPLOY_IMAGE}"
 
-            write_compose() {
-              local image="$1"
-              cat > docker-compose.open-webui-theme.yml <<YAML
-            services:
-              open-webui-theme:
-                image: ${image}
-                container_name: open-webui-theme
-                restart: unless-stopped
-                environment:
-                  NEXT_PUBLIC_API_URL: ""
-                  NEXT_PUBLIC_AI_MODELS: "${NEXT_PUBLIC_AI_MODELS}"
-                expose:
-                  - "3000"
-            YAML
+          write_compose() {
+            local image="$1"
+            cat > docker-compose.open-webui-theme.yml <<YAML
+          services:
+            open-webui-theme:
+              image: ${image}
+              container_name: open-webui-theme
+              restart: unless-stopped
+              environment:
+                NEXT_PUBLIC_API_URL: ""
+                NEXT_PUBLIC_AI_MODELS: "${NEXT_PUBLIC_AI_MODELS}"
+              expose:
+                - "3000"
+          YAML
+          }
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('caddy/Caddyfile')
+          text = path.read_text()
+          block = '''ai.panyakorn.com {
+            handle /api/* {
+              reverse_proxy backend:8888
             }
 
-            python3 - <<'PY'
-            from pathlib import Path
-
-            path = Path('caddy/Caddyfile')
-            text = path.read_text()
-            block = '''ai.panyakorn.com {
-              handle /api/* {
-                reverse_proxy backend:8888
-              }
-
-              handle {
-                reverse_proxy open-webui-theme:3000
-              }
+            handle {
+              reverse_proxy open-webui-theme:3000
             }
-            '''
-            marker = 'ai.panyakorn.com {'
-            start = text.find(marker)
-            if start == -1:
-                text = text.rstrip() + '\n\n' + block
-            else:
-                depth = 0
-                end = None
-                for index in range(start, len(text)):
-                    char = text[index]
-                    if char == '{':
-                        depth += 1
-                    elif char == '}':
-                        depth -= 1
-                        if depth == 0:
-                            end = index + 1
-                            break
-                if end is None:
-                    raise SystemExit('Could not parse ai.panyakorn.com Caddy block')
-                text = text[:start] + block.rstrip() + text[end:]
-            path.write_text(text)
-            PY
+          }
+          '''
+          marker = 'ai.panyakorn.com {'
+          start = text.find(marker)
+          if start == -1:
+              text = text.rstrip() + '\n\n' + block
+          else:
+              depth = 0
+              end = None
+              for index in range(start, len(text)):
+                  char = text[index]
+                  if char == '{':
+                      depth += 1
+                  elif char == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = index + 1
+                          break
+              if end is None:
+                  raise SystemExit('Could not parse ai.panyakorn.com Caddy block')
+              text = text[:start] + block.rstrip() + text[end:]
+          path.write_text(text)
+          PY
 
-            health_check() {
-              for attempt in 1 2 3 4 5 6 7 8 9 10; do
-                if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
-                  echo "open-webui-theme is reachable from caddy"
-                  return 0
-                fi
-                echo "Waiting for open-webui-theme to become ready... attempt ${attempt}/10"
-                docker logs --tail=20 open-webui-theme || true
-                sleep 3
-              done
-              return 1
-            }
+          health_check() {
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
+                echo "open-webui-theme is reachable from caddy"
+                return 0
+              fi
+              echo "Waiting for open-webui-theme to become ready... attempt ${attempt}/10"
+              docker logs --tail=20 open-webui-theme || true
+              sleep 3
+            done
+            return 1
+          }
 
-            write_compose "$DEPLOY_IMAGE"
+          write_compose "$DEPLOY_IMAGE"
+          docker compose $compose_files config >/dev/null
+          docker compose $compose_files pull open-webui-theme
+          docker compose $compose_files up -d open-webui-theme caddy
+          docker compose $compose_files restart caddy
+          docker compose $compose_files ps open-webui-theme caddy
+
+          if health_check; then
+            echo "$DEPLOY_IMAGE" > .open-webui-theme-current-image
+            docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}' "$IMAGE_REPOSITORY" \
+              | awk 'NR > '${IMAGE_RETENTION}' {print $1}' \
+              | xargs -r docker image rm || true
+            docker image prune -f --filter "until=168h" || true
+            exit 0
+          fi
+
+          echo "Health check failed for ${DEPLOY_IMAGE}"
+          docker logs --tail=100 open-webui-theme || true
+
+          if [ -n "$previous_image" ] && [ "$previous_image" != "$DEPLOY_IMAGE" ]; then
+            echo "Rolling back to ${previous_image}"
+            write_compose "$previous_image"
             docker compose $compose_files config >/dev/null
-            docker compose $compose_files pull open-webui-theme
+            docker compose $compose_files pull open-webui-theme || true
             docker compose $compose_files up -d open-webui-theme caddy
             docker compose $compose_files restart caddy
-            docker compose $compose_files ps open-webui-theme caddy
-
             if health_check; then
-              echo "$DEPLOY_IMAGE" > .open-webui-theme-current-image
-              docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}' "$IMAGE_REPOSITORY" \
-                | awk 'NR > '${IMAGE_RETENTION}' {print $1}' \
-                | xargs -r docker image rm || true
-              docker image prune -f --filter "until=168h" || true
-              exit 0
-            fi
-
-            echo "Health check failed for ${DEPLOY_IMAGE}"
-            docker logs --tail=100 open-webui-theme || true
-
-            if [ -n "$previous_image" ] && [ "$previous_image" != "$DEPLOY_IMAGE" ]; then
-              echo "Rolling back to ${previous_image}"
-              write_compose "$previous_image"
-              docker compose $compose_files config >/dev/null
-              docker compose $compose_files pull open-webui-theme || true
-              docker compose $compose_files up -d open-webui-theme caddy
-              docker compose $compose_files restart caddy
-              if health_check; then
-                echo "$previous_image" > .open-webui-theme-current-image
-                echo "Rollback succeeded"
-              else
-                echo "::error::Rollback health check failed"
-              fi
+              echo "$previous_image" > .open-webui-theme-current-image
+              echo "Rollback succeeded"
             else
-              echo "::error::No previous image available for rollback"
+              echo "::error::Rollback health check failed"
             fi
+          else
+            echo "::error::No previous image available for rollback"
+          fi
 
-            exit 1
-
+          exit 1
+          REMOTE_SCRIPT
       - name: Verify public domain if DNS is ready
         run: |
           set -euo pipefail
