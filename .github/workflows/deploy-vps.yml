@@ -189,7 +189,9 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          if ! ssh-keyscan -T 15 -H "$VPS_HOST" >> ~/.ssh/known_hosts; then
+            echo "::warning::Could not prefetch SSH host key for VPS_HOST; continuing because ssh-action validates the connection during deploy."
+          fi
 
       - name: Deploy on VPS with rollback
         uses: appleboy/ssh-action@v1.0.3
