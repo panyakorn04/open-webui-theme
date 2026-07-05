@@ -464,12 +464,16 @@ function ComposerForm({
     prompt,
     setPrompt,
     isLoading,
+    selectedModel,
+    setSelectedModel,
     handleSubmit,
     handleKeyDown,
 }: {
     prompt: string;
     setPrompt: (nextPrompt: string) => void;
     isLoading: boolean;
+    selectedModel: string;
+    setSelectedModel: (nextModel: string) => void;
     handleSubmit: (e: FormEvent<HTMLFormElement>) => void;
     handleKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
@@ -483,6 +487,21 @@ function ComposerForm({
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
             />
+            <label className="composer-model-select">
+                <span>Model</span>
+                <select
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    disabled={isLoading}
+                    aria-label="Select AI model"
+                >
+                    {availableAiModels.map((model) => (
+                        <option key={model} value={model}>
+                            {model}
+                        </option>
+                    ))}
+                </select>
+            </label>
             <button
                 className="send-btn"
                 type="submit"
@@ -812,23 +831,6 @@ export default function Home() {
                                 <span className="pill-dot" aria-hidden="true" />
                                 {statusLabel}
                             </span>
-                            <label className="model-select-pill">
-                                <span>Model</span>
-                                <select
-                                    value={selectedModel}
-                                    onChange={(event) =>
-                                        setSelectedModel(event.target.value)
-                                    }
-                                    disabled={isLoading}
-                                    aria-label="Select AI model"
-                                >
-                                    {availableAiModels.map((model) => (
-                                        <option key={model} value={model}>
-                                            {model}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
                         </div>
                     </header>
 
@@ -843,6 +845,8 @@ export default function Home() {
                                         prompt={prompt}
                                         setPrompt={setPrompt}
                                         isLoading={isLoading}
+                                        selectedModel={selectedModel}
+                                        setSelectedModel={setSelectedModel}
                                         handleSubmit={handleSubmit}
                                         handleKeyDown={handleKeyDown}
                                     />
@@ -889,6 +893,8 @@ export default function Home() {
                                     prompt={prompt}
                                     setPrompt={setPrompt}
                                     isLoading={isLoading}
+                                    selectedModel={selectedModel}
+                                    setSelectedModel={setSelectedModel}
                                     handleSubmit={handleSubmit}
                                     handleKeyDown={handleKeyDown}
                                 />

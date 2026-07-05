@@ -503,7 +503,7 @@ textarea {
 }
 
 .empty-composer-card .composer {
-    grid-template-columns: minmax(0, 1fr) 42px;
+    grid-template-columns: minmax(0, 1fr) minmax(136px, auto) 42px;
     min-height: 126px;
     border-radius: 22px;
 }
@@ -783,7 +783,7 @@ textarea {
 
 .composer {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 42px;
+    grid-template-columns: minmax(0, 1fr) minmax(136px, auto) 42px;
     align-items: end;
     gap: 10px;
     padding: 10px;
@@ -813,6 +813,42 @@ textarea {
 
 .composer textarea::placeholder {
     color: var(--fg-subtle);
+}
+
+.composer-model-select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--accent-border);
+    border-radius: 16px;
+    color: var(--accent);
+    background: var(--accent-dim);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    white-space: nowrap;
+}
+
+.composer-model-select select {
+    width: min(26vw, 188px);
+    min-width: 0;
+    border: 0;
+    color: var(--fg);
+    background: transparent;
+    font: inherit;
+    outline: 0;
+}
+
+.composer-model-select select:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.composer-model-select option {
+    color: #0f172a;
 }
 
 .send-btn {
@@ -958,21 +994,6 @@ textarea {
         display: none;
     }
 
-    .model-select-pill {
-        max-width: 44vw;
-        min-height: 28px;
-        padding: 0 8px;
-        font-size: 10px;
-    }
-
-    .model-select-pill span {
-        display: none;
-    }
-
-    .model-select-pill select {
-        max-width: 34vw;
-    }
-
     .topbar-actions .pill {
         min-height: 28px;
         padding: 0 9px;
@@ -1004,9 +1025,24 @@ textarea {
     }
 
     .composer {
-        grid-template-columns: minmax(0, 1fr) 40px;
+        grid-template-columns: minmax(0, 1fr) minmax(112px, auto) 40px;
         border-radius: 22px;
         padding: 8px;
+    }
+
+    .composer-model-select {
+        height: 40px;
+        padding: 0 9px;
+        border-radius: 15px;
+        font-size: 10px;
+    }
+
+    .composer-model-select span {
+        display: none;
+    }
+
+    .composer-model-select select {
+        width: min(28vw, 128px);
     }
 
     .composer textarea {
