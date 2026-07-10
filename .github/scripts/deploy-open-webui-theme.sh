@@ -6,6 +6,18 @@ set -Eeuo pipefail
 : "${NEXT_PUBLIC_AI_MODELS:?NEXT_PUBLIC_AI_MODELS is required}"
 : "${IMAGE_RETENTION:?IMAGE_RETENTION is required}"
 : "${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}"
+: "${GHCR_USERNAME:?GHCR_USERNAME is required}"
+: "${GHCR_TOKEN:?GHCR_TOKEN is required}"
+
+registry_host="${IMAGE_REPOSITORY%%/*}"
+docker_config_dir="$(mktemp -d)"
+export DOCKER_CONFIG="$docker_config_dir"
+cleanup_registry_auth() {
+  rm -rf "$docker_config_dir"
+}
+trap cleanup_registry_auth EXIT
+printf '%s\n' "$GHCR_TOKEN" | docker login "$registry_host" --username "$GHCR_USERNAME" --password-stdin
+unset GHCR_TOKEN
 
 cd /opt/apps
 

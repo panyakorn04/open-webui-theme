@@ -174,6 +174,9 @@ jobs:
     needs: image
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     environment: production
+    permissions:
+      contents: read
+      packages: read
 
     env:
       DEPLOY_IMAGE: ${{ needs.image.outputs.image }}:${{ needs.image.outputs.tag }}
@@ -251,19 +254,23 @@ jobs:
           NEXT_PUBLIC_AI_MODELS: ${{ env.NEXT_PUBLIC_AI_MODELS }}
           IMAGE_RETENTION: ${{ env.IMAGE_RETENTION }}
           PUBLIC_DOMAIN: ${{ env.PUBLIC_DOMAIN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          remote_env=$(printf 'DEPLOY_IMAGE=%q IMAGE_REPOSITORY=%q NEXT_PUBLIC_AI_MODELS=%q IMAGE_RETENTION=%q PUBLIC_DOMAIN=%q' \
-            "$DEPLOY_IMAGE" "$IMAGE_REPOSITORY" "$NEXT_PUBLIC_AI_MODELS" "$IMAGE_RETENTION" "$PUBLIC_DOMAIN")
-          ssh -i ~/.ssh/deploy_key \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=60 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            "${VPS_USER}@${VPS_HOST}" \
-            "${remote_env} bash -se" \
-            < .github/scripts/deploy-open-webui-theme.sh
+          remote_env=$(printf 'DEPLOY_IMAGE=%q IMAGE_REPOSITORY=%q NEXT_PUBLIC_AI_MODELS=%q IMAGE_RETENTION=%q PUBLIC_DOMAIN=%q GHCR_USERNAME=%q' \
+            "$DEPLOY_IMAGE" "$IMAGE_REPOSITORY" "$NEXT_PUBLIC_AI_MODELS" "$IMAGE_RETENTION" "$PUBLIC_DOMAIN" "$GHCR_USERNAME")
+          {
+            printf '%s\n' "$GHCR_TOKEN"
+            cat .github/scripts/deploy-open-webui-theme.sh
+          } | ssh -i ~/.ssh/deploy_key \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=60 \
+              -o ServerAliveInterval=15 \
+              -o ServerAliveCountMax=4 \
+              "${VPS_USER}@${VPS_HOST}" \
+              "IFS= read -r GHCR_TOKEN; export GHCR_TOKEN; ${remote_env} bash -se"
 
       - name: Verify public domain
         run: |
