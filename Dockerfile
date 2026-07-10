@@ -9,7 +9,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 FROM base AS builder
-ARG NEXT_PUBLIC_API_URL=https://api.panyakorn.com
+ARG NEXT_PUBLIC_API_URL=""
 ARG NEXT_PUBLIC_AI_MODELS=panyakorn-local:latest
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_AI_MODELS=$NEXT_PUBLIC_AI_MODELS

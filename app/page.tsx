@@ -5,6 +5,7 @@ import {
     type FormEvent,
     type KeyboardEvent,
     type RefObject,
+    useCallback,
     useEffect,
     useMemo,
     useRef,
@@ -16,6 +17,13 @@ import {
     createBackendChatFetcher,
     defaultAiModel,
 } from "../lib/backend-chat-fetcher";
+import {
+    chatSessionsStorageKey,
+    type ChatSession,
+    mergeChatSessions,
+    persistStoredSessions,
+    readStoredSessions,
+} from "../lib/chat-sessions";
 
 const skills = [
     "portfolio-2026",
@@ -30,17 +38,11 @@ const quickPrompts = [
 ];
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
-const chatSessionsStorageKey = "panyakorn-ai-chat-sessions:v1";
-
 const initialMessages: UIMessage[] = [];
 
-type ChatSession = {
-    id: string;
-    title: string;
-    messages: UIMessage[];
-    createdAt: number;
-    updatedAt: number;
-};
+function supportedModel(model: string) {
+    return availableAiModels.includes(model) ? model : defaultAiModel;
+}
 
 function newSessionId() {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -49,12 +51,14 @@ function newSessionId() {
     return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function createChatSession(title = "New chat"): ChatSession {
+function createChatSession(selectedModel = defaultAiModel, title = "New chat"): ChatSession {
     const now = Date.now();
     return {
         id: newSessionId(),
         title,
         messages: initialMessages,
+        messageModels: {},
+        selectedModel,
         createdAt: now,
         updatedAt: now,
     };
@@ -68,9 +72,15 @@ function messageText(message: UIMessage) {
     return texts.join("\n");
 }
 
-function messageMeta(message: UIMessage, selectedModel: string) {
+function messageMeta(
+    message: UIMessage,
+    selectedModel: string,
+    messageModels: Record<string, string>,
+) {
     if (message.id === "welcome") return "Panyakorn AI";
-    return message.role === "assistant" ? selectedModel : "You";
+    return message.role === "assistant"
+        ? (messageModels[message.id] ?? selectedModel)
+        : "You";
 }
 
 function sessionTitleFromMessages(messages: UIMessage[]) {
@@ -80,47 +90,6 @@ function sessionTitleFromMessages(messages: UIMessage[]) {
     const text = firstUserMessage ? messageText(firstUserMessage).trim() : "";
     if (!text) return "New chat";
     return text.length > 48 ? `${text.slice(0, 48)}…` : text;
-}
-
-function readStoredSessions() {
-    if (typeof window === "undefined") return null;
-
-    try {
-        const raw = window.localStorage.getItem(chatSessionsStorageKey);
-        if (!raw) return null;
-
-        const parsed = JSON.parse(raw) as {
-            activeSessionId?: string;
-            sessions?: ChatSession[];
-        };
-        const sessions = parsed.sessions?.filter(
-            (session) =>
-                typeof session.id === "string" &&
-                typeof session.title === "string" &&
-                Array.isArray(session.messages),
-        );
-
-        if (!sessions?.length) return null;
-        return {
-            activeSessionId: parsed.activeSessionId ?? sessions[0].id,
-            sessions,
-        };
-    } catch {
-        return null;
-    }
-}
-
-function writeStoredSessions(activeSessionId: string, sessions: ChatSession[]) {
-    if (typeof window === "undefined") return;
-
-    try {
-        window.localStorage.setItem(
-            chatSessionsStorageKey,
-            JSON.stringify({ activeSessionId, sessions }),
-        );
-    } catch {
-        // Ignore storage failures so chat remains usable in private mode/quota limits.
-    }
 }
 
 /* ── SVG Icons ─────────────────────────────────────── */
@@ -227,6 +196,9 @@ function Sidebar({
     openSession,
     deleteSession,
     selectedModel,
+    isMobile,
+    sidebarRef,
+    closeButtonRef,
 }: {
     sortedSessions: ChatSession[];
     activeSessionId: string;
@@ -237,13 +209,19 @@ function Sidebar({
     openSession: (session: ChatSession) => void;
     deleteSession: (session: ChatSession) => void;
     selectedModel: string;
+    isMobile: boolean;
+    sidebarRef: RefObject<HTMLElement | null>;
+    closeButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
     return (
         <aside
+            ref={sidebarRef}
             id="workspace-sidebar"
             className={`sidebar${mobileDrawerOpen ? " open" : ""}`}
             aria-label="Workspace navigation"
+            role={mobileDrawerOpen ? "dialog" : undefined}
             aria-modal={mobileDrawerOpen ? "true" : undefined}
+            inert={isMobile && !mobileDrawerOpen}
         >
             <div className="brand-card">
                 <div className="brand-mark" aria-hidden="true">
@@ -254,6 +232,7 @@ function Sidebar({
                     <h1>AI Console</h1>
                 </div>
                 <button
+                    ref={closeButtonRef}
                     className="drawer-close"
                     type="button"
                     aria-label="Close navigation drawer"
@@ -344,17 +323,25 @@ function MessageList({
     isLoading,
     error,
     messagesEndRef,
+    messagesContainerRef,
+    onMessagesScroll,
     selectedModel,
+    messageModels,
 }: {
     messages: UIMessage[];
     isLoading: boolean;
     error: Error | undefined | null;
     messagesEndRef: RefObject<HTMLDivElement | null>;
+    messagesContainerRef: RefObject<HTMLDivElement | null>;
+    onMessagesScroll: () => void;
     selectedModel: string;
+    messageModels: Record<string, string>;
 }) {
     return (
         <div
             className="messages"
+            ref={messagesContainerRef}
+            onScroll={onMessagesScroll}
             role="log"
             aria-live="polite"
             aria-label="Chat messages"
@@ -382,7 +369,11 @@ function MessageList({
                         )}
                         <div className="bubble">
                             <p className="message-meta">
-                                {messageMeta(message, selectedModel)}
+                                {messageMeta(
+                                    message,
+                                    selectedModel,
+                                    messageModels,
+                                )}
                             </p>
                             <p>{content}</p>
                         </div>
@@ -466,6 +457,7 @@ function ComposerForm({
     isLoading,
     selectedModel,
     setSelectedModel,
+    stopGeneration,
     handleSubmit,
     handleKeyDown,
 }: {
@@ -474,6 +466,7 @@ function ComposerForm({
     isLoading: boolean;
     selectedModel: string;
     setSelectedModel: (nextModel: string) => void;
+    stopGeneration: () => void;
     handleSubmit: (e: FormEvent<HTMLFormElement>) => void;
     handleKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
@@ -506,12 +499,13 @@ function ComposerForm({
                     </select>
                 </label>
                 <button
-                    className="send-btn"
-                    type="submit"
-                    disabled={isLoading || prompt.trim() === ""}
-                    aria-label="Send message"
+                    className={`send-btn${isLoading ? " stop-btn" : ""}`}
+                    type={isLoading ? "button" : "submit"}
+                    disabled={!isLoading && prompt.trim() === ""}
+                    aria-label={isLoading ? "Stop generation" : "Send message"}
+                    onClick={isLoading ? stopGeneration : undefined}
                 >
-                    <IconArrowUp />
+                    {isLoading ? <IconX /> : <IconArrowUp />}
                 </button>
             </div>
         </form>
@@ -521,12 +515,20 @@ function ComposerForm({
 function ContextPanel({
     error,
     selectedModel,
+    inert,
+    hasConnected,
 }: {
     error: Error | undefined | null;
     selectedModel: string;
+    inert: boolean;
+    hasConnected: boolean;
 }) {
     return (
-        <aside className="context-panel" aria-label="Context and skills">
+        <aside
+            className="context-panel"
+            aria-label="Context and skills"
+            inert={inert}
+        >
 
 
             <section className="glass-card glow-card">
@@ -541,7 +543,11 @@ function ContextPanel({
                 <div className="connection-row">
                     <span className="conn-label">API status</span>
                     <span className="conn-status">
-                        {error ? "● Error" : "● Online"}
+                        {error
+                            ? "● Error"
+                            : hasConnected
+                              ? "● Online"
+                              : "● Not checked"}
                     </span>
                 </div>
             </section>
@@ -580,6 +586,7 @@ export default function Home() {
     if (defaultSessionRef.current === null) {
         defaultSessionRef.current = createChatSession();
     }
+
     const [prompt, setPrompt] = useState("");
     const [sessions, setSessions] = useState<ChatSession[]>([
         defaultSessionRef.current,
@@ -588,19 +595,83 @@ export default function Home() {
         defaultSessionRef.current.id,
     );
     const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
     const [selectedModel, setSelectedModel] = useState(defaultAiModel);
+    const [hasConnected, setHasConnected] = useState(false);
+    const [chatClientEpoch, setChatClientEpoch] = useState(0);
+
     const hasLoadedStoredSessionsRef = useRef(false);
-    const chatFetcher = useMemo(
-        () => createBackendChatFetcher(selectedModel),
-        [selectedModel],
+    const lastChatSessionRef = useRef(activeSessionId);
+    const selectedModelRef = useRef(selectedModel);
+    selectedModelRef.current = selectedModel;
+
+    const activeSession = useMemo(
+        () => sessions.find((session) => session.id === activeSessionId),
+        [activeSessionId, sessions],
     );
-    const { error, isLoading, messages, sendMessage, setMessages } = useChat({
+    const chatFetcher = useMemo(
+        () => createBackendChatFetcher(() => selectedModelRef.current),
+        [],
+    );
+    const {
+        error,
+        isLoading,
+        messages,
+        sendMessage,
+        stop: stopGeneration,
+    } = useChat({
+        id: `${activeSessionId}:${chatClientEpoch}`,
+        threadId: activeSessionId,
         fetcher: chatFetcher,
-        initialMessages,
+        initialMessages: activeSession?.messages ?? initialMessages,
         devtools: { name: "Panyakorn AI Console" },
+        onFinish: (message) => {
+            setHasConnected(true);
+            const responseModel = selectedModelRef.current;
+            setSessions((currentSessions) =>
+                currentSessions.map((session) =>
+                    session.id === activeSessionId
+                        ? {
+                              ...session,
+                              messageModels: {
+                                  ...session.messageModels,
+                                  [message.id]: responseModel,
+                              },
+                              selectedModel: responseModel,
+                              updatedAt: Date.now(),
+                          }
+                        : session,
+                ),
+            );
+        },
     });
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const shouldAutoScrollRef = useRef(true);
+    const sidebarRef = useRef<HTMLElement>(null);
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+    const sessionsRef = useRef(sessions);
+    const messagesRef = useRef(messages);
+    sessionsRef.current = sessions;
+    messagesRef.current = messages;
+
+    const syncCurrentMessages = useCallback(
+        (currentSessions: ChatSession[]) =>
+            currentSessions.map((session) =>
+                session.id === activeSessionId
+                    ? {
+                          ...session,
+                          title: sessionTitleFromMessages(messages),
+                          messages,
+                          selectedModel,
+                          updatedAt: Date.now(),
+                      }
+                    : session,
+            ),
+        [activeSessionId, messages, selectedModel],
+    );
 
     useEffect(() => {
         function syncVisualViewportHeight() {
@@ -637,83 +708,213 @@ export default function Home() {
     }, []);
 
     useEffect(() => {
-        function handleEscape(event: globalThis.KeyboardEvent) {
-            if (event.key === "Escape") {
-                setMobileDrawerOpen(false);
-            }
-        }
-
-        window.addEventListener("keydown", handleEscape);
-        return () => window.removeEventListener("keydown", handleEscape);
+        const mediaQuery = window.matchMedia("(max-width: 900px)");
+        const syncMobileState = () => {
+            setIsMobile(mediaQuery.matches);
+            if (!mediaQuery.matches) setMobileDrawerOpen(false);
+        };
+        syncMobileState();
+        mediaQuery.addEventListener("change", syncMobileState);
+        return () => mediaQuery.removeEventListener("change", syncMobileState);
     }, []);
 
     useEffect(() => {
         document.body.classList.toggle("drawer-open", mobileDrawerOpen);
-        return () => document.body.classList.remove("drawer-open");
+        if (!mobileDrawerOpen) return () => document.body.classList.remove("drawer-open");
+
+        const previousFocus = document.activeElement as HTMLElement | null;
+        const sidebar = sidebarRef.current;
+        closeButtonRef.current?.focus();
+
+        function handleDrawerKeyDown(event: globalThis.KeyboardEvent) {
+            if (event.key === "Escape") {
+                setMobileDrawerOpen(false);
+                return;
+            }
+            if (event.key !== "Tab" || !sidebar) return;
+
+            const focusable = [...sidebar.querySelectorAll<HTMLElement>(
+                'button:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+            )].filter((element) => !element.hasAttribute("inert"));
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable.at(-1)!;
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+
+        window.addEventListener("keydown", handleDrawerKeyDown);
+        return () => {
+            window.removeEventListener("keydown", handleDrawerKeyDown);
+            document.body.classList.remove("drawer-open");
+            (previousFocus ?? menuButtonRef.current)?.focus();
+        };
     }, [mobileDrawerOpen]);
 
     useEffect(() => {
-        const stored = readStoredSessions();
+        const stored = readStoredSessions(window.localStorage, defaultAiModel);
         if (stored) {
-            const activeSession =
+            const storedActiveSession =
                 stored.sessions.find(
                     (session) => session.id === stored.activeSessionId,
                 ) ?? stored.sessions[0];
-
             setSessions(stored.sessions);
-            setActiveSessionId(activeSession.id);
-            setMessages(activeSession.messages);
+            setActiveSessionId(storedActiveSession.id);
+            setSelectedModel(supportedModel(storedActiveSession.selectedModel));
         }
-
         hasLoadedStoredSessionsRef.current = true;
-    }, [setMessages]);
+    }, []);
+
+    useEffect(() => {
+        function syncOtherTabs(event: StorageEvent) {
+            if (event.key !== chatSessionsStorageKey) return;
+            const stored = readStoredSessions(window.localStorage, defaultAiModel);
+            if (!stored) return;
+            const incomingActiveSession = stored.sessions.find(
+                (session) => session.id === activeSessionId,
+            );
+            const localActiveSession = sessionsRef.current.find(
+                (session) => session.id === activeSessionId,
+            );
+            const activeSessionChanged =
+                incomingActiveSession !== undefined &&
+                (localActiveSession === undefined ||
+                    (incomingActiveSession.updatedAt >= localActiveSession.updatedAt &&
+                        JSON.stringify(incomingActiveSession) !==
+                            JSON.stringify(localActiveSession)));
+
+            if (stored.deletedSessionIds.includes(activeSessionId)) {
+                const nextActiveSession =
+                    stored.sessions.find(
+                        (session) => session.id === stored.activeSessionId,
+                    ) ?? stored.sessions[0];
+                if (isLoading) stopGeneration();
+                setActiveSessionId(nextActiveSession.id);
+                setSelectedModel(supportedModel(nextActiveSession.selectedModel));
+            } else if (activeSessionChanged) {
+                if (isLoading) stopGeneration();
+                setSelectedModel(supportedModel(incomingActiveSession.selectedModel));
+                setChatClientEpoch((currentEpoch) => currentEpoch + 1);
+            }
+            setSessions((currentSessions) =>
+                mergeChatSessions(
+                    stored.sessions,
+                    currentSessions.filter(
+                        (session) =>
+                            !stored.deletedSessionIds.includes(session.id),
+                    ),
+                ),
+            );
+        }
+        window.addEventListener("storage", syncOtherTabs);
+        return () => window.removeEventListener("storage", syncOtherTabs);
+    }, [activeSessionId, isLoading, stopGeneration]);
 
     useEffect(() => {
         if (!hasLoadedStoredSessionsRef.current) return;
+        if (lastChatSessionRef.current !== activeSessionId) {
+            lastChatSessionRef.current = activeSessionId;
+            return;
+        }
 
-        setSessions((currentSessions) => {
-            const updated = currentSessions.map((session) => {
-                if (session.id !== activeSessionId) return session;
-                return {
-                    ...session,
-                    title: sessionTitleFromMessages(messages),
-                    messages,
-                    updatedAt: Date.now(),
-                };
-            });
+        const timeoutId = window.setTimeout(() => {
+            setSessions((currentSessions) => syncCurrentMessages(currentSessions));
+        }, 400);
+        return () => window.clearTimeout(timeoutId);
+    }, [activeSessionId, messages, syncCurrentMessages]);
 
-            writeStoredSessions(activeSessionId, updated);
-
-            return updated;
-        });
-    }, [activeSessionId, messages]);
-
-    /* Auto-scroll to bottom after every render that changes the message list */
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
+        if (!hasLoadedStoredSessionsRef.current) return;
+        const timeoutId = window.setTimeout(() => {
+            void persistStoredSessions(
+                window.localStorage,
+                activeSessionId,
+                sessions,
+                defaultAiModel,
+            ).catch(() => {
+                // Chat stays usable when storage is unavailable or over quota.
+            });
+        }, 500);
+        return () => window.clearTimeout(timeoutId);
+    }, [activeSessionId, sessions]);
 
-    const activeSession = useMemo(
-        () => sessions.find((session) => session.id === activeSessionId),
-        [activeSessionId, sessions],
-    );
+    useEffect(() => {
+        function flushSession() {
+            const current = sessionsRef.current.map((session) =>
+                session.id === activeSessionId
+                    ? {
+                          ...session,
+                          title: sessionTitleFromMessages(messagesRef.current),
+                          messages: messagesRef.current,
+                          selectedModel: selectedModelRef.current,
+                          updatedAt: Date.now(),
+                      }
+                    : session,
+            );
+            void persistStoredSessions(
+                window.localStorage,
+                activeSessionId,
+                current,
+                defaultAiModel,
+            ).catch(() => {
+                // Ignore best-effort lifecycle persistence failures.
+            });
+        }
+        function flushWhenHidden() {
+            if (document.visibilityState === "hidden") flushSession();
+        }
+        document.addEventListener("visibilitychange", flushWhenHidden);
+        window.addEventListener("pagehide", flushSession);
+        return () => {
+            document.removeEventListener("visibilitychange", flushWhenHidden);
+            window.removeEventListener("pagehide", flushSession);
+        };
+    }, [activeSessionId]);
+
+    useEffect(() => {
+        if (!shouldAutoScrollRef.current) return;
+        const reduceMotion = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+        ).matches;
+        messagesEndRef.current?.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+        });
+    }, [messages, isLoading]);
 
     const sortedSessions = useMemo(
         () => sessions.toSorted((a, b) => b.updatedAt - a.updatedAt),
         [sessions],
     );
 
-    const statusLabel =
-        isLoading ? "Thinking…" : error ? "API error" : "Connected";
+    const statusLabel = isLoading
+        ? "Thinking…"
+        : error
+          ? "API error"
+          : hasConnected
+            ? "Connected"
+            : "Not checked";
     const hasStartedConversation = messages.some(
         (message) => message.role === "user" || message.id !== "welcome",
     );
     const showEmptyState = !hasStartedConversation && !isLoading && !error;
 
+    function handleMessagesScroll() {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+        const distanceFromBottom =
+            container.scrollHeight - container.scrollTop - container.clientHeight;
+        shouldAutoScrollRef.current = distanceFromBottom < 160;
+    }
+
     async function sendPrompt(nextPrompt: string) {
         const trimmed = nextPrompt.trim();
         if (!trimmed || isLoading) return;
-
+        shouldAutoScrollRef.current = true;
         setPrompt("");
         await sendMessage(trimmed);
     }
@@ -724,28 +925,45 @@ export default function Home() {
     }
 
     function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+        if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             void sendPrompt(prompt);
         }
     }
 
+    function handleSelectedModelChange(nextModel: string) {
+        setSelectedModel(nextModel);
+        setSessions((currentSessions) =>
+            currentSessions.map((session) =>
+                session.id === activeSessionId
+                    ? {
+                          ...session,
+                          selectedModel: nextModel,
+                          updatedAt: Date.now(),
+                      }
+                    : session,
+            ),
+        );
+    }
+
     function startNewChat() {
         if (isLoading) return;
-
-        const nextSession = createChatSession();
-        setSessions((currentSessions) => [nextSession, ...currentSessions]);
+        const nextSession = createChatSession(selectedModel);
+        setSessions((currentSessions) => [
+            nextSession,
+            ...syncCurrentMessages(currentSessions),
+        ]);
         setActiveSessionId(nextSession.id);
-        setMessages(nextSession.messages);
         setPrompt("");
         setMobileDrawerOpen(false);
     }
 
     function openSession(session: ChatSession) {
         if (isLoading || session.id === activeSessionId) return;
-
+        setSessions((currentSessions) => syncCurrentMessages(currentSessions));
         setActiveSessionId(session.id);
-        setMessages(session.messages);
+        setSelectedModel(supportedModel(session.selectedModel));
         setPrompt("");
         setMobileDrawerOpen(false);
     }
@@ -753,26 +971,36 @@ export default function Home() {
     function deleteSession(sessionToDelete: ChatSession) {
         if (isLoading) return;
 
-        const remainingSessions = sessions.filter(
+        const currentSessions = syncCurrentMessages(sessions);
+        const remainingSessions = currentSessions.filter(
             (session) => session.id !== sessionToDelete.id,
         );
         const nextSessions = remainingSessions.length
             ? remainingSessions
-            : [createChatSession()];
+            : [createChatSession(selectedModel)];
 
-        if (sessionToDelete.id === activeSessionId) {
-            const nextActiveSession = nextSessions.toSorted(
-                (a, b) => b.updatedAt - a.updatedAt,
-            )[0];
-            setSessions(nextSessions);
+        const deletingActiveSession = sessionToDelete.id === activeSessionId;
+        const nextActiveSession = deletingActiveSession
+            ? nextSessions.toSorted((a, b) => b.updatedAt - a.updatedAt)[0]
+            : nextSessions.find((session) => session.id === activeSessionId) ??
+              nextSessions[0];
+
+        setSessions(nextSessions);
+        void persistStoredSessions(
+            window.localStorage,
+            nextActiveSession.id,
+            nextSessions,
+            defaultAiModel,
+            [sessionToDelete.id],
+        ).catch(() => {
+            // Keep the in-memory deletion when storage is unavailable.
+        });
+
+        if (deletingActiveSession) {
             setActiveSessionId(nextActiveSession.id);
-            setMessages(nextActiveSession.messages);
+            setSelectedModel(supportedModel(nextActiveSession.selectedModel));
             setPrompt("");
             setMobileDrawerOpen(false);
-            writeStoredSessions(nextActiveSession.id, nextSessions);
-        } else {
-            setSessions(nextSessions);
-            writeStoredSessions(activeSessionId, nextSessions);
         }
     }
 
@@ -801,16 +1029,21 @@ export default function Home() {
                     openSession={openSession}
                     deleteSession={deleteSession}
                     selectedModel={selectedModel}
+                    isMobile={isMobile}
+                    sidebarRef={sidebarRef}
+                    closeButtonRef={closeButtonRef}
                 />
 
                 {/* ── Chat Panel ──────────────────────────── */}
                 <section
                     className={`chat-panel${showEmptyState ? " empty" : ""}`}
                     aria-label="AI chat"
+                    inert={mobileDrawerOpen}
                 >
                     {/* Topbar */}
                     <header className="topbar">
                         <button
+                            ref={menuButtonRef}
                             className="mobile-menu-toggle"
                             type="button"
                             aria-label="Open navigation drawer"
@@ -821,7 +1054,9 @@ export default function Home() {
                             <IconMenu />
                         </button>
                         <div className="topbar-title">
-                            <p className="eyebrow">Backend API Connected</p>
+                            <p className="eyebrow">
+                                {hasConnected ? "Backend API Connected" : "Backend API Not Checked"}
+                            </p>
                             <h2>{activeSession?.title ?? "New chat"}</h2>
                         </div>
                         <div
@@ -850,7 +1085,8 @@ export default function Home() {
                                         setPrompt={setPrompt}
                                         isLoading={isLoading}
                                         selectedModel={selectedModel}
-                                        setSelectedModel={setSelectedModel}
+                                        setSelectedModel={handleSelectedModelChange}
+                                        stopGeneration={stopGeneration}
                                         handleSubmit={handleSubmit}
                                         handleKeyDown={handleKeyDown}
                                     />
@@ -888,7 +1124,10 @@ export default function Home() {
                                 isLoading={isLoading}
                                 error={error}
                                 messagesEndRef={messagesEndRef}
+                                messagesContainerRef={messagesContainerRef}
+                                onMessagesScroll={handleMessagesScroll}
                                 selectedModel={selectedModel}
+                                messageModels={activeSession?.messageModels ?? {}}
                             />
 
                             {/* Composer */}
@@ -898,7 +1137,8 @@ export default function Home() {
                                     setPrompt={setPrompt}
                                     isLoading={isLoading}
                                     selectedModel={selectedModel}
-                                    setSelectedModel={setSelectedModel}
+                                    setSelectedModel={handleSelectedModelChange}
+                                    stopGeneration={stopGeneration}
                                     handleSubmit={handleSubmit}
                                     handleKeyDown={handleKeyDown}
                                 />
@@ -908,7 +1148,12 @@ export default function Home() {
                 </section>
 
                 {/* ── Context Panel ────────────────────────── */}
-                <ContextPanel error={error} selectedModel={selectedModel} />
+                <ContextPanel
+                    error={error}
+                    selectedModel={selectedModel}
+                    inert={mobileDrawerOpen}
+                    hasConnected={hasConnected}
+                />
             </main>
         </>
     );
