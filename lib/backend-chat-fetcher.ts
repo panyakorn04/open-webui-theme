@@ -3,6 +3,8 @@ import type { ChatFetcher, UIMessage } from "@tanstack/ai-client";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 const fallbackAiModel = "panyakorn-local:latest";
+const defaultRequestTimeoutMs = 120_000;
+const streamFallbackStatuses = new Set([404, 405, 415, 501]);
 
 function parseModelList(value: string | undefined) {
   const models = value
@@ -16,7 +18,7 @@ function parseModelList(value: string | undefined) {
 export const availableAiModels = parseModelList(process.env.NEXT_PUBLIC_AI_MODELS);
 export const defaultAiModel = availableAiModels[0] ?? fallbackAiModel;
 
-export type BackendChatMessage = {
+type BackendChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
@@ -40,6 +42,12 @@ type BackendChatResponse = {
   };
 };
 
+type BackendChatFetcherOptions = {
+  requestTimeoutMs?: number;
+};
+
+class StreamUnavailableError extends Error {}
+
 export function apiUrl(path: string) {
   if (!apiBaseUrl) return path;
   return `${apiBaseUrl.replace(/\/$/, "")}${path}`;
@@ -53,7 +61,7 @@ function textFromUIMessage(message: UIMessage) {
   return texts.join("\n").trim();
 }
 
-export function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage[] {
+function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage[] {
   return messages
     .map((message) => ({
       role: message.role,
@@ -65,9 +73,55 @@ export function backendMessagesFromUI(messages: UIMessage[]): BackendChatMessage
     .slice(-10);
 }
 
-export function createBackendChatFetcher(model: string): ChatFetcher {
+export function createBackendChatFetcher(
+  getModel: () => string,
+  options: BackendChatFetcherOptions = {},
+): ChatFetcher {
   return ({ messages, runId, threadId }, { signal }) =>
-    streamBackendChat(messages as UIMessage[], runId, threadId, signal, model);
+    streamBackendChatWithFallback(
+      messages as UIMessage[],
+      runId,
+      threadId,
+      signal,
+      getModel(),
+      options.requestTimeoutMs ?? defaultRequestTimeoutMs,
+    );
+}
+
+async function* streamBackendChatWithFallback(
+  messages: UIMessage[],
+  runId: string,
+  threadId: string,
+  externalSignal: AbortSignal,
+  model: string,
+  requestTimeoutMs: number,
+): AsyncIterable<StreamChunk> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(externalSignal.reason);
+  const timeoutId = setTimeout(
+    () => controller.abort(new DOMException("AI request timed out.", "TimeoutError")),
+    requestTimeoutMs,
+  );
+
+  if (externalSignal.aborted) abortFromCaller();
+  else externalSignal.addEventListener("abort", abortFromCaller, { once: true });
+
+  try {
+    try {
+      yield* streamBackendChat(messages, runId, threadId, controller.signal, model);
+    } catch (error) {
+      if (externalSignal.aborted) return;
+      if (controller.signal.aborted) {
+        throw new Error("AI request timed out.", { cause: error });
+      }
+      if (!(error instanceof StreamUnavailableError)) throw error;
+
+      yield* streamBackendChatFallback(messages, runId, threadId, controller.signal, model);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal.removeEventListener("abort", abortFromCaller);
+  }
 }
 
 async function* streamBackendChat(
@@ -90,10 +144,14 @@ async function* streamBackendChat(
   });
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
+    const message = await responseErrorMessage(response);
+    if (streamFallbackStatuses.has(response.status)) {
+      throw new StreamUnavailableError(message);
+    }
+    throw new Error(message);
   }
   if (!response.body) {
-    throw new Error("AI stream response did not include a body.");
+    throw new StreamUnavailableError("AI stream response did not include a body.");
   }
 
   for await (const chunk of parseSSEStream(response.body, signal)) {
@@ -116,6 +174,18 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
   let buffer = "";
   let readerDone = false;
   let streamCompleted = false;
+  const eventBoundary = /(?:\r\n|\r|\n){2}/;
+
+  function takeCompleteEvents() {
+    const events: string[] = [];
+    let match = eventBoundary.exec(buffer);
+    while (match?.index !== undefined) {
+      events.push(buffer.slice(0, match.index));
+      buffer = buffer.slice(match.index + match[0].length);
+      match = eventBoundary.exec(buffer);
+    }
+    return events;
+  }
 
   try {
     while (!signal.aborted) {
@@ -126,10 +196,7 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
       }
 
       buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split("\n\n");
-      buffer = events.pop() ?? "";
-
-      for (const event of events) {
+      for (const event of takeCompleteEvents()) {
         const chunk = parseSSEEvent(event);
         if (!chunk) continue;
         streamCompleted ||= chunk.type === EventType.RUN_FINISHED || chunk.type === EventType.RUN_ERROR;
@@ -140,6 +207,12 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
     if (signal.aborted) return;
 
     buffer += decoder.decode();
+    for (const event of takeCompleteEvents()) {
+      const chunk = parseSSEEvent(event);
+      if (!chunk) continue;
+      streamCompleted ||= chunk.type === EventType.RUN_FINISHED || chunk.type === EventType.RUN_ERROR;
+      yield chunk;
+    }
     if (buffer.trim() !== "") {
       throw new Error("AI stream ended before completing an SSE event.");
     }
@@ -160,14 +233,18 @@ async function* parseSSEStream(body: ReadableStream<Uint8Array>, signal: AbortSi
 
 function parseSSEEvent(event: string): StreamChunk | null {
   const data = event
-    .split("\n")
+    .split(/\r\n|\r|\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.replace(/^data:\s?/, ""))
     .join("\n")
     .trim();
 
   if (!data || data === "[DONE]") return null;
-  return JSON.parse(data) as StreamChunk;
+  try {
+    return JSON.parse(data) as StreamChunk;
+  } catch {
+    return null;
+  }
 }
 
 async function* streamBackendChatFallback(
@@ -175,7 +252,7 @@ async function* streamBackendChatFallback(
   runId: string,
   threadId: string,
   signal: AbortSignal,
-  model = defaultAiModel,
+  model: string,
 ): AsyncIterable<StreamChunk> {
   const startedAt = Date.now();
   const messageId = `assistant-${runId}`;
@@ -239,7 +316,20 @@ async function* streamBackendChatFallback(
       },
     } as StreamChunk;
   } catch (error) {
-    if (signal.aborted) return;
+    if (signal.aborted) {
+      if (signal.reason instanceof DOMException && signal.reason.name === "TimeoutError") {
+        yield {
+          type: EventType.RUN_ERROR,
+          timestamp: Date.now(),
+          runId,
+          threadId,
+          model,
+          message: "AI request timed out.",
+          code: "BACKEND_CHAT_TIMEOUT",
+        } as StreamChunk;
+      }
+      return;
+    }
 
     yield {
       type: EventType.RUN_ERROR,

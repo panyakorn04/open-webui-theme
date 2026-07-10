@@ -44,6 +44,7 @@ bun run dev
 
 ```bash
 bun run lint
+bun run test
 NEXT_PUBLIC_API_URL= bun run build
 ```
 
@@ -61,21 +62,29 @@ Included:
 
 Not included yet:
 - authentication
-- persistence
-- real chat streaming
+- backend persistence
 
 ## Production integration
 
 Current production stack:
 
 ```text
-ai.panyakorn.com/api/* -> backend:8888 -> http://ollama:11434 -> selected allowed Ollama model
+chat.panyakorn.com/api/* -> allowlisted chat routes -> backend:8888 -> http://ollama:11434 -> selected allowed Ollama model
 ```
 
 Production domain:
 
 ```text
-https://ai.panyakorn.com
+https://chat.panyakorn.com
 ```
 
 Ollama should remain internal-only and should not be exposed publicly.
+
+The production environment requires these GitHub Actions secrets:
+
+- `VPS_HOST`
+- `VPS_USER`
+- `VPS_SSH_KEY`
+- `VPS_HOST_KEY` containing the pinned SSH key type and public key, for example `ssh-ed25519 AAAA...`
+
+`chat.panyakorn.com` must resolve to the production VPS before the deploy job starts so Caddy can provision and verify TLS without deploying an unrouteable release.

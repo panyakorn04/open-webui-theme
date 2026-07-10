@@ -796,6 +796,14 @@ textarea {
     -webkit-backdrop-filter: blur(26px) saturate(1.4);
 }
 
+.composer:focus-within {
+    border-color: rgba(34 197 94 / 0.72);
+    box-shadow:
+        0 0 0 2px rgba(34 197 94 / 0.2),
+        0 22px 80px rgba(0 0 0 / 0.45),
+        0 1px 0 rgba(255 255 255 / 0.08) inset;
+}
+
 .composer textarea {
     width: 100%;
     min-height: 50px;
@@ -899,6 +907,13 @@ textarea {
     filter: brightness(1.05);
 }
 
+.send-btn.stop-btn {
+    color: #fee2e2;
+    background: rgba(239 68 68 / 0.2);
+    border: 1px solid rgba(248 113 113 / 0.42);
+    box-shadow: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .ambient::before,
     .ambient::after,
@@ -947,12 +962,17 @@ textarea {
         border-radius: 0 24px 24px 0;
         background: rgba(18 18 15 / 0.92);
         box-shadow: 24px 0 80px rgba(0 0 0 / 0.42);
+        visibility: hidden;
         transform: translateX(calc(-100% - 16px));
-        transition: transform var(--dur) var(--ease);
+        transition:
+            transform var(--dur) var(--ease),
+            visibility 0s linear var(--dur);
     }
 
     .sidebar.open {
+        visibility: visible;
         transform: translateX(0);
+        transition-delay: 0s;
     }
 
     .brand-card {
