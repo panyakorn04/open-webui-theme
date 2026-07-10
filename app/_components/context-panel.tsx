@@ -1,5 +1,7 @@
 import { memo } from "react";
 
+import { VERSION } from "../../lib/version";
+
 const skills = [
     "portfolio-2026",
     "vps-ai-services",
@@ -71,6 +73,7 @@ export const ContextPanel = memo(function ContextPanel({
                 <code>CHAT_SESSIONS=localStorage</code>
                 <code>BACKEND_MODEL={selectedModel}</code>
                 <code>OLLAMA_URL=internal://ollama:11434</code>
+                    <code>VERSIGN={VERSION}</code>
             </section>
         </aside>
     );

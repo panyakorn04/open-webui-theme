@@ -1,4 +1,6 @@
 import { memo, type RefObject } from "react";
+
+import { VERSION } from "../../lib/version";
 import type { ChatSession } from "../../lib/chat-sessions";
 import { IconPlus, IconTrash, IconX } from "./icons";
 
@@ -128,6 +130,9 @@ export const Sidebar = memo(function Sidebar({
                         <strong>{selectedModel}</strong>
                         <span>Ollama internal · selectable</span>
                     </div>
+                </div>
+                <div className="version-line" title="Current version">
+                    v{VERSION}
                 </div>
             </div>
         </aside>

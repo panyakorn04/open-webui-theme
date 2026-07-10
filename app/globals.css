@@ -1123,3 +1123,12 @@ textarea {
     0%, 100% { opacity: 0.4; }
     50% { opacity: 0.7; }
 }
+
+/* Version / Versign display */
+.version-line {
+  margin-top: 8px;
+  font-size: 11px;
+  opacity: 0.6;
+  font-family: ui-monospace, monospace;
+  padding-left: 4px;
+}
