@@ -13,6 +13,48 @@ function messageMeta(
         : "You";
 }
 
+type MessageItemProps = {
+    message: UIMessage;
+    selectedModel: string;
+    messageModels: Record<string, string>;
+};
+
+const MessageItem = memo(function MessageItem({
+    message,
+    selectedModel,
+    messageModels,
+}: MessageItemProps) {
+    const content = messageText(message);
+    if (!content) return null;
+
+    return (
+        <article
+            className={
+                message.role === "user"
+                    ? "message user"
+                    : "message assistant"
+            }
+        >
+            {message.role === "assistant" && (
+                <span className="avatar ai-avatar" aria-hidden="true">
+                    AI
+                </span>
+            )}
+            <div className="bubble">
+                <p className="message-meta">
+                    {messageMeta(message, selectedModel, messageModels)}
+                </p>
+                <p>{content}</p>
+            </div>
+            {message.role === "user" && (
+                <span className="avatar user-avatar" aria-hidden="true">
+                    PB
+                </span>
+            )}
+        </article>
+    );
+});
+
 type MessageListProps = {
     messages: UIMessage[];
     isLoading: boolean;
@@ -43,38 +85,14 @@ export const MessageList = memo(function MessageList({
             aria-live="polite"
             aria-label="Chat messages"
         >
-            {messages.map((message) => {
-                const content = messageText(message);
-                if (!content) return null;
-
-                return (
-                    <article
-                        key={message.id}
-                        className={
-                            message.role === "user"
-                                ? "message user"
-                                : "message assistant"
-                        }
-                    >
-                        {message.role === "assistant" && (
-                            <span className="avatar ai-avatar" aria-hidden="true">
-                                AI
-                            </span>
-                        )}
-                        <div className="bubble">
-                            <p className="message-meta">
-                                {messageMeta(message, selectedModel, messageModels)}
-                            </p>
-                            <p>{content}</p>
-                        </div>
-                        {message.role === "user" && (
-                            <span className="avatar user-avatar" aria-hidden="true">
-                                PB
-                            </span>
-                        )}
-                    </article>
-                );
-            })}
+            {messages.map((message) => (
+                <MessageItem
+                    key={message.id}
+                    message={message}
+                    selectedModel={selectedModel}
+                    messageModels={messageModels}
+                />
+            ))}
 
             {isLoading && (
                 <article className="message assistant" aria-label="AI is thinking">

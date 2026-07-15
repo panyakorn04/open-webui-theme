@@ -116,7 +116,7 @@ export function useChatWorkspace(): ChatWorkspaceState {
     const hasLoadedStoredSessionsRef = useRef(false);
     const lastChatSessionRef = useRef(activeSessionId);
     const selectedModelRef = useRef(selectedModel);
-    selectedModelRef.current = selectedModel;
+    useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
 
     const activeSession = useMemo(
         () => sessions.find((session) => session.id === activeSessionId),
@@ -162,8 +162,8 @@ export function useChatWorkspace(): ChatWorkspaceState {
     const { messagesEndRef, messagesContainerRef, handleMessagesScroll, requestAutoScroll } = useAutoScroll(messages, isLoading);
     const sessionsRef = useRef(sessions);
     const messagesRef = useRef(messages);
-    sessionsRef.current = sessions;
-    messagesRef.current = messages;
+    useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+    useEffect(() => { messagesRef.current = messages; }, [messages]);
 
     const syncCurrentMessages = useCallback(
         (currentSessions: ChatSession[]) =>
@@ -217,7 +217,8 @@ export function useChatWorkspace(): ChatWorkspaceState {
                         JSON.stringify(incomingActiveSession) !==
                             JSON.stringify(localActiveSession)));
 
-            if (stored.deletedSessionIds.includes(activeSessionId)) {
+            const deletedIdSet = new Set(stored.deletedSessionIds);
+            if (deletedIdSet.has(activeSessionId)) {
                 const nextActiveSession =
                     stored.sessions.find(
                         (session) => session.id === stored.activeSessionId,
@@ -239,7 +240,7 @@ export function useChatWorkspace(): ChatWorkspaceState {
                     stored.sessions,
                     currentSessions.filter(
                         (session) =>
-                            !stored.deletedSessionIds.includes(session.id),
+                            !deletedIdSet.has(session.id),
                     ),
                 ),
             );
@@ -324,10 +325,12 @@ export function useChatWorkspace(): ChatWorkspaceState {
           : hasConnected
             ? "Connected"
             : "Not checked";
-    const hasStartedConversation = messages.some(
-        (message) => message.role === "user" || message.id !== "welcome",
-    );
-    const showEmptyState = !hasStartedConversation && !isLoading && !error;
+    const showEmptyState = useMemo(() => {
+        const hasStartedConversation = messages.some(
+            (message) => message.role === "user" || message.id !== "welcome",
+        );
+        return !hasStartedConversation && !isLoading && !error;
+    }, [messages, isLoading, error]);
 
     // handleMessagesScroll now comes from useAutoScroll
 
@@ -339,7 +342,7 @@ export function useChatWorkspace(): ChatWorkspaceState {
             setPrompt("");
             await sendMessage(trimmed);
         },
-        [isLoading, sendMessage],
+        [isLoading, sendMessage, requestAutoScroll],
     );
 
     const handleSubmit = useCallback(

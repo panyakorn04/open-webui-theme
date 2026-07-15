@@ -4,6 +4,63 @@ import { VERSION } from "../../lib/version";
 import type { ChatSession } from "../../lib/chat-sessions";
 import { IconPlus, IconTrash, IconX } from "./icons";
 
+type SidebarSessionItemProps = {
+    session: ChatSession;
+    active: boolean;
+    isLoading: boolean;
+    onOpenSession: (session: ChatSession) => void;
+    onDeleteSession: (session: ChatSession) => void;
+};
+
+const SidebarSessionItem = memo(function SidebarSessionItem({
+    session,
+    active,
+    isLoading,
+    onOpenSession,
+    onDeleteSession,
+}: SidebarSessionItemProps) {
+    return (
+        <div
+            className={
+                active
+                    ? "conversation-row active"
+                    : "conversation-row"
+            }
+        >
+            <button
+                className={
+                    active
+                        ? "conversation active"
+                        : "conversation"
+                }
+                type="button"
+                aria-current={active ? "page" : undefined}
+                disabled={isLoading && !active}
+                title={session.title}
+                onClick={() => onOpenSession(session)}
+            >
+                <span
+                    className={active ? "dot" : "dot dot-dim"}
+                    aria-hidden="true"
+                />
+                <span className="conversation-title">
+                    {session.title}
+                </span>
+            </button>
+            <button
+                className="delete-conversation"
+                type="button"
+                aria-label={`Delete recent chat: ${session.title}`}
+                title="Delete recent"
+                disabled={isLoading}
+                onClick={() => onDeleteSession(session)}
+            >
+                <IconTrash />
+            </button>
+        </div>
+    );
+});
+
 type SidebarProps = {
     sessions: ChatSession[];
     activeSessionId: string;
@@ -75,50 +132,16 @@ export const Sidebar = memo(function Sidebar({
             <nav className="nav-section" aria-label="Recent conversations">
                 <p className="section-label">Recent</p>
                 <div className="conversation-list">
-                    {sessions.map((session) => {
-                        const active = session.id === activeSessionId;
-                        return (
-                            <div
-                                key={session.id}
-                                className={
-                                    active
-                                        ? "conversation-row active"
-                                        : "conversation-row"
-                                }
-                            >
-                                <button
-                                    className={
-                                        active
-                                            ? "conversation active"
-                                            : "conversation"
-                                    }
-                                    type="button"
-                                    aria-current={active ? "page" : undefined}
-                                    disabled={isLoading && !active}
-                                    title={session.title}
-                                    onClick={() => onOpenSession(session)}
-                                >
-                                    <span
-                                        className={active ? "dot" : "dot dot-dim"}
-                                        aria-hidden="true"
-                                    />
-                                    <span className="conversation-title">
-                                        {session.title}
-                                    </span>
-                                </button>
-                                <button
-                                    className="delete-conversation"
-                                    type="button"
-                                    aria-label={`Delete recent chat: ${session.title}`}
-                                    title="Delete recent"
-                                    disabled={isLoading}
-                                    onClick={() => onDeleteSession(session)}
-                                >
-                                    <IconTrash />
-                                </button>
-                            </div>
-                        );
-                    })}
+                    {sessions.map((session) => (
+                        <SidebarSessionItem
+                            key={session.id}
+                            session={session}
+                            active={session.id === activeSessionId}
+                            isLoading={isLoading}
+                            onOpenSession={onOpenSession}
+                            onDeleteSession={onDeleteSession}
+                        />
+                    ))}
                 </div>
             </nav>
 

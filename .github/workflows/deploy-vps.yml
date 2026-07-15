@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  checks: write
+  statuses: write
 
 defaults:
   run:
@@ -70,6 +72,23 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Report validate status to commit
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conclusion = '${{ job.status }}';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: conclusion === 'success' ? 'success' : 'failure',
+              target_url: runUrl,
+              description: 'Validate (lint + test + build): ' + (conclusion === 'success' ? 'passed' : 'failed'),
+              context: '${{ github.workflow }} / validate'
+            });
+
   docker-validate:
     name: Validate production Docker image
     runs-on: ubuntu-latest
@@ -84,17 +103,55 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build production image without publishing
+      - name: Build and load production image for validation
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
+          load: true
+          tags: open-webui-theme:pr-${{ github.event.number }}
           push: false
           build-args: |
             NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_AI_MODELS=${{ env.NEXT_PUBLIC_AI_MODELS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          container="$(docker run -d -p 3000:3000 open-webui-theme:pr-${{ github.event.number }})"
+          sleep 5
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS -o /dev/null --max-time 10 http://localhost:3000/; then
+              echo "Image responds OK"
+              docker logs "$container" --tail=10 2>&1 || true
+              docker stop "$container" >/dev/null
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Image failed to respond"
+          docker logs "$container" 2>&1 || true
+          docker stop "$container" >/dev/null
+          exit 1
+
+      - name: Report docker-validate status to commit
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conclusion = '${{ job.status }}';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: conclusion === 'success' ? 'success' : 'failure',
+              target_url: runUrl,
+              description: 'Docker image validation: ' + (conclusion === 'success' ? 'passed' : 'failed'),
+              context: '${{ github.workflow }} / docker-validate'
+            });
 
   image:
     name: Build, scan, and publish image
@@ -177,6 +234,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      statuses: write
 
     env:
       DEPLOY_IMAGE: ${{ needs.image.outputs.image }}:${{ needs.image.outputs.tag }}
@@ -285,6 +343,23 @@ jobs:
           echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN} even though DNS resolves."
           exit 1
 
+      - name: Set commit status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conclusion = '${{ job.status }}';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: conclusion === 'success' ? 'success' : 'failure',
+              target_url: runUrl,
+              description: '${{ github.workflow }} deploy: ' + (conclusion === 'success' ? 'passed' : 'failed'),
+              context: '${{ github.workflow }} / deploy'
+            });
+
       - name: Notify Discord on failure
         if: failure()
         env:
@@ -302,6 +377,32 @@ jobs:
           data = {
               "content": (
                   "🚨 open-webui-theme deploy failed\n"
+                  f"Workflow: {os.environ['GITHUB_WORKFLOW']}\n"
+                  f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              )
+          }
+          print(json.dumps(data))
+          PY
+          )
+          curl -fsS -H 'Content-Type: application/json' -d "$payload" "$DISCORD_WEBHOOK_URL"
+
+      - name: Notify Discord on success
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set; skipping success notification."
+            exit 0
+          fi
+          set -euo pipefail
+          payload=$(python3 - <<'PY'
+          import json
+          import os
+
+          data = {
+              "content": (
+                  "✅ open-webui-theme deployed successfully\n"
                   f"Workflow: {os.environ['GITHUB_WORKFLOW']}\n"
                   f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
               )

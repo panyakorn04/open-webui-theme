@@ -1,4 +1,6 @@
-export function IconPlus() {
+import { memo } from "react";
+
+export const IconPlus = memo(function IconPlus() {
     return (
         <svg
             width="14"
@@ -13,9 +15,9 @@ export function IconPlus() {
             <path d="M12 5v14M5 12h14" />
         </svg>
     );
-}
+});
 
-export function IconArrowUp() {
+export const IconArrowUp = memo(function IconArrowUp() {
     return (
         <svg
             width="17"
@@ -31,9 +33,9 @@ export function IconArrowUp() {
             <path d="M12 19V5M5 12l7-7 7 7" />
         </svg>
     );
-}
+});
 
-export function IconMenu() {
+export const IconMenu = memo(function IconMenu() {
     return (
         <svg
             width="18"
@@ -48,9 +50,9 @@ export function IconMenu() {
             <path d="M4 7h16M4 12h16M4 17h16" />
         </svg>
     );
-}
+});
 
-export function IconX() {
+export const IconX = memo(function IconX() {
     return (
         <svg
             width="18"
@@ -65,9 +67,9 @@ export function IconX() {
             <path d="M6 6l12 12M18 6L6 18" />
         </svg>
     );
-}
+});
 
-export function IconTrash() {
+export const IconTrash = memo(function IconTrash() {
     return (
         <svg
             width="15"
@@ -86,4 +88,4 @@ export function IconTrash() {
             <path d="M10 11v5M14 11v5" />
         </svg>
     );
-}
+});

@@ -66,7 +66,7 @@ YAML
 
 health_check() {
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    if docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null; then
+    if docker exec caddy curl -sfS -o /dev/null --max-time 10 http://open-webui-theme:3000; then
       echo "open-webui-theme is reachable from caddy"
       break
     fi
@@ -75,7 +75,7 @@ health_check() {
     sleep 3
   done
 
-  docker exec caddy wget -qO- http://open-webui-theme:3000 >/dev/null
+  docker exec caddy curl -sfS -o /dev/null --max-time 10 http://open-webui-theme:3000
 
   local tls_ready=0
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
