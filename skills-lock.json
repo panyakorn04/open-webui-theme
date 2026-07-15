@@ -13,11 +13,35 @@
       "skillPath": "plugins/developer-kit-typescript/skills/nextjs-code-review/SKILL.md",
       "computedHash": "859a556486183d25d3dd5f41526bf034b868eb02e13a7f881ed2d48014e94ecf"
     },
+    "nextjs-performance": {
+      "source": "giuseppe-trisciuoglio/developer-kit",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-kit-typescript/skills/nextjs-performance/SKILL.md",
+      "computedHash": "d501ce1172320b575151a07159e2b72f5429fb5847a662d6b967716eaa218c9c"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",
       "skillPath": ".claude/skills/ui-ux-pro-max/SKILL.md",
       "computedHash": "c0e71f1ea9d80c74f710960c2b4d9ab0f8a6d14c331f8d361df2c28d1879846e"
+    },
+    "multi-stage-dockerfile": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/multi-stage-dockerfile/SKILL.md",
+      "computedHash": "7dfea7d31f3744930cb07869e15a79f90dbd47d2ddc56d165715fbd257db9ba7"
+    },
+    "devops-automation": {
+      "source": "claude-office-skills/skills",
+      "sourceType": "github",
+      "skillPath": "devops-automation/SKILL.md",
+      "computedHash": "f56116bed22a08516e12f57c40ca11dcf91c6751b185cee98806f4c0ae3de2d3"
+    },
+    "react-doctor": {
+      "source": "anomalyco/opencode",
+      "sourceType": "github",
+      "skillPath": "",
+      "computedHash": "df58b3490543b5f3bfc2bc78ba7da0ae697cfc88ee228e9044323636fe68f28c"
     }
   }
 }
