@@ -25,12 +25,6 @@
       "skillPath": "skills/multi-stage-dockerfile/SKILL.md",
       "computedHash": "7dfea7d31f3744930cb07869e15a79f90dbd47d2ddc56d165715fbd257db9ba7"
     },
-    "devops-automation": {
-      "source": "claude-office-skills/skills",
-      "sourceType": "github",
-      "skillPath": "devops-automation/SKILL.md",
-      "computedHash": "f56116bed22a08516e12f57c40ca11dcf91c6751b185cee98806f4c0ae3de2d3"
-    },
     "react-doctor": {
       "source": "anomalyco/opencode",
       "sourceType": "github",
