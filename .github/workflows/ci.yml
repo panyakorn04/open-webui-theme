@@ -360,6 +360,7 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
             -u "${{ github.actor }}" --password-stdin
+          docker pull "$DEPLOY_IMAGE"
           docker tag "$DEPLOY_IMAGE" "${IMAGE_REPOSITORY}:latest"
           docker push "${IMAGE_REPOSITORY}:latest"
 
