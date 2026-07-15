@@ -209,7 +209,6 @@ jobs:
         run: |
           set -euo pipefail
           docker push "$FULL_IMAGE"
-          docker push "$IMAGE:latest"
 
   deploy:
     name: Deploy to VPS
@@ -217,10 +216,12 @@ jobs:
     timeout-minutes: 30
     needs: image
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    environment: production
+    environment:
+      name: production
+      url: https://chat.panyakorn.com
     permissions:
       contents: read
-      packages: read
+      packages: write
       statuses: write
 
     env:
@@ -232,6 +233,30 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Notify deploy start
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set; skipping pre-deploy notification."
+            exit 0
+          fi
+          set -euo pipefail
+          payload=$(python3 - <<'PY'
+          import json, os
+          data = {
+              "content": (
+                  "🚀 **open-webui-theme deploy starting**\n"
+                  f"Commit: `{os.environ['GITHUB_SHA'][:7]}`\n"
+                  f"Image: `{os.environ['DEPLOY_IMAGE']}`\n"
+                  f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              )
+          }
+          print(json.dumps(data))
+          PY
+          )
+          curl -fsS -H 'Content-Type: application/json' -d "$payload" "$DISCORD_WEBHOOK_URL"
 
       - name: Check required deployment secrets
         env:
@@ -330,6 +355,14 @@ jobs:
           echo "Public HTTPS verification failed for https://${PUBLIC_DOMAIN} even though DNS resolves."
           exit 1
 
+      - name: Push latest tag after successful deploy
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+          docker tag "$DEPLOY_IMAGE" "${IMAGE_REPOSITORY}:latest"
+          docker push "${IMAGE_REPOSITORY}:latest"
+
       - name: Set commit status
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -347,7 +380,7 @@ jobs:
               context: '${{ github.workflow }} / deploy'
             });
 
-      - name: Notify Discord on failure
+      - name: Notify Discord on failure (rollback triggered)
         if: failure()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -363,7 +396,8 @@ jobs:
 
           data = {
               "content": (
-                  "🚨 open-webui-theme deploy failed\n"
+                  "🚨 **open-webui-theme rollback triggered**\n"
+                  f"Commit: `{os.environ['GITHUB_SHA'][:7]}`\n"
                   f"Workflow: {os.environ['GITHUB_WORKFLOW']}\n"
                   f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
               )
@@ -389,7 +423,8 @@ jobs:
 
           data = {
               "content": (
-                  "✅ open-webui-theme deployed successfully\n"
+                  "✅ **open-webui-theme deployed successfully**\n"
+                  f"Commit: `{os.environ['GITHUB_SHA'][:7]}`\n"
                   f"Workflow: {os.environ['GITHUB_WORKFLOW']}\n"
                   f"Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
               )

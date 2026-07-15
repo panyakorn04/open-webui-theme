@@ -233,19 +233,22 @@ The `CI and Deploy Open WebUI Theme` workflow runs on pull requests, pushes to `
 4. Wait for the image-defined health check, run an external HTTP probe, and always remove the test container.
 5. Publish explicit validation commit statuses.
 
-### Pushes to `main` and manual deployments
+### Pushes to `main` and manual deployments — with approval gate
 
 1. Run the same application validation gate with third-party actions pinned to immutable commit SHAs.
-2. Build an immutable `ghcr.io/panyakorn04/open-webui-theme:<commit-sha>` image plus `latest` using the GitHub Actions cache.
+2. Build an immutable `ghcr.io/panyakorn04/open-webui-theme:<commit-sha>` image using the GitHub Actions cache (no `latest` tag yet).
 3. Start the exact release image, wait for its Docker health check, run an external HTTP probe, and always clean up the test container.
 4. Scan OS and library dependencies with Trivy; fixed HIGH or CRITICAL findings block publishing.
-5. Push the tested and scanned image to GHCR.
-6. Verify production DNS before connecting to the VPS.
-7. Deploy over pinned-host-key native SSH using a short-lived GHCR token.
-8. Update the Compose overlay and Caddy route, start/recreate the application and Caddy services, then validate and reload Caddy.
-9. Check container reachability, public TLS, the two allowlisted API routes, and the `/api/*` deny boundary.
-10. Roll back Compose, Caddy, and the previous immutable image if deployment or health checks fail.
-11. Retain recent images, prune old layers, set the commit status, and optionally notify Discord.
+5. Push only the commit-SHA-tagged image to GHCR.
+6. Notify Discord: "Deploy starting" with commit and image details.
+7. Verify production DNS before connecting to the VPS.
+8. Verify the previous image is still pullable (rollback path safety check).
+9. Deploy over pinned-host-key native SSH using a short-lived GHCR token.
+10. Update the Compose overlay and Caddy route, start/recreate the application and Caddy services, then validate and reload Caddy.
+11. Check container reachability, public TLS, the two allowlisted API routes, and the `/api/*` deny boundary.
+12. Roll back Compose, Caddy, and the previous immutable image if deployment or health checks fail.
+13. Push the `latest` tag to GHCR only after all health checks pass — `latest` always points to a verified image.
+14. Retain recent images, prune old layers, set the commit status, and notify Discord with the outcome (success or rollback-triggered).
 
 ### GitHub configuration
 
@@ -256,10 +259,16 @@ Required repository or production-environment secrets:
 - `VPS_SSH_KEY`
 - `VPS_HOST_KEY` — pinned SSH key type and public key, for example `ssh-ed25519 AAAA...`
 
+Required GitHub Environment protection (`production`):
+
+- **Required reviewers** — add at least 1 reviewer who must approve before deploy runs on `main` pushes.
+- **Deployment branch** — restrict to `main` only (already implicit in workflow trigger).
+- **Optional:** add a custom deployment window rule if desired.
+
 Optional configuration:
 
 - Repository variable `NEXT_PUBLIC_AI_MODELS`
-- Secret `DISCORD_WEBHOOK_URL` for success and failure notifications
+- Secret `DISCORD_WEBHOOK_URL` for success, failure, and rollback notifications
 
 `GITHUB_TOKEN` is used for GHCR publishing and the short-lived production pull; no long-lived registry token is required. `chat.panyakorn.com` must resolve to the configured VPS before deployment starts.
 

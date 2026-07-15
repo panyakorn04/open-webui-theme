@@ -46,6 +46,16 @@ fi
 echo "Previous image: ${previous_image:-none}"
 echo "Deploy image: ${DEPLOY_IMAGE}"
 
+# Verify the previous image is still pullable before deploying the new one
+if [ -n "$previous_image" ]; then
+  echo "Verifying previous image is pullable: ${previous_image}"
+  if docker pull "$previous_image" >/dev/null 2>&1; then
+    echo "Previous image is pullable — rollback path is safe"
+  else
+    echo "Warning: could not pull previous image (${previous_image}) — rollback may use local cache"
+  fi
+fi
+
 write_compose() {
   local image="$1"
   local models_json
