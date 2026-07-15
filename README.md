@@ -62,7 +62,7 @@ In production, `NEXT_PUBLIC_API_URL` is intentionally empty so the browser uses 
 | Package manager | Bun 1.3.14 with `bun.lock` |
 | Tests | Bun test |
 | Type checking | `tsc --noEmit` |
-| Container build | Multi-stage Bun builder and non-root Node 22 Alpine runtime |
+| Container build | Multi-stage Bun builder and non-root Node 22 Alpine runtime, with base-image digest pins and an application health check |
 | Registry | GitHub Container Registry (GHCR) |
 | Edge proxy | Caddy |
 | CI/CD | GitHub Actions, Buildx cache, Trivy, native SSH deployment |
@@ -207,7 +207,7 @@ docker build \
 docker run --rm -p 3000:3000 open-webui-theme:local
 ```
 
-The Dockerfile installs dependencies and builds with Bun, then copies Next.js standalone output into a minimal Node 22 Alpine runtime. The final container runs as the unprivileged `nextjs` user and does not include npm or npx.
+The Dockerfile pins both base-image digests, caches Bun downloads with BuildKit, builds the application with Bun, and copies only Next.js standalone output into a minimal Node 22 Alpine runtime. The final container runs as the unprivileged `nextjs` user, does not include npm or npx, handles `SIGTERM`, and exposes a Node-based HTTP health check without adding curl to the runtime image.
 
 ## CI/CD
 
@@ -218,21 +218,22 @@ The `CI and Deploy Open WebUI Theme` workflow runs on pull requests, pushes to `
 1. Install dependencies with the frozen Bun lockfile.
 2. Run TypeScript checks, tests, required-skill validation, and a production build.
 3. Build and start a Linux/amd64 production Docker image.
-4. Probe the running container before accepting the image.
+4. Wait for the image-defined health check, run an external HTTP probe, and always remove the test container.
 5. Publish explicit validation commit statuses.
 
 ### Pushes to `main` and manual deployments
 
-1. Run the same application validation gate.
+1. Run the same application validation gate with third-party actions pinned to immutable commit SHAs.
 2. Build an immutable `ghcr.io/panyakorn04/open-webui-theme:<commit-sha>` image plus `latest` using the GitHub Actions cache.
-3. Scan OS and library dependencies with Trivy; fixed HIGH or CRITICAL findings block publishing.
-4. Push the scanned image to GHCR.
-5. Verify production DNS before connecting to the VPS.
-6. Deploy over pinned-host-key native SSH using a short-lived GHCR token.
-7. Update the Compose overlay and Caddy route, start/recreate the application and Caddy services, then validate and reload Caddy.
-8. Check container reachability, public TLS, the two allowlisted API routes, and the `/api/*` deny boundary.
-9. Roll back Compose, Caddy, and the previous immutable image if deployment or health checks fail.
-10. Retain recent images, prune old layers, set the commit status, and optionally notify Discord.
+3. Start the exact release image, wait for its Docker health check, run an external HTTP probe, and always clean up the test container.
+4. Scan OS and library dependencies with Trivy; fixed HIGH or CRITICAL findings block publishing.
+5. Push the tested and scanned image to GHCR.
+6. Verify production DNS before connecting to the VPS.
+7. Deploy over pinned-host-key native SSH using a short-lived GHCR token.
+8. Update the Compose overlay and Caddy route, start/recreate the application and Caddy services, then validate and reload Caddy.
+9. Check container reachability, public TLS, the two allowlisted API routes, and the `/api/*` deny boundary.
+10. Roll back Compose, Caddy, and the previous immutable image if deployment or health checks fail.
+11. Retain recent images, prune old layers, set the commit status, and optionally notify Discord.
 
 ### GitHub configuration
 

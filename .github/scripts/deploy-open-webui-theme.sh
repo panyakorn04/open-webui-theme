@@ -21,7 +21,7 @@ unset GHCR_TOKEN
 
 cd /opt/apps
 
-compose_files="-f docker-compose.yml -f docker-compose.open-webui-theme.yml"
+compose_files=(-f docker-compose.yml -f docker-compose.open-webui-theme.yml)
 ts="$(date +%Y%m%d-%H%M%S)"
 caddy_backup="caddy/Caddyfile.bak.open-webui-theme.${ts}"
 overlay_backup="docker-compose.open-webui-theme.yml.bak.${ts}"
@@ -136,17 +136,17 @@ rollback_release() {
     rm -f docker-compose.open-webui-theme.yml
   fi
 
-  local rollback_files="-f docker-compose.yml"
+  local rollback_files=(-f docker-compose.yml)
   if [ -f docker-compose.open-webui-theme.yml ]; then
-    rollback_files="$compose_files"
+    rollback_files=("${compose_files[@]}")
   fi
 
-  docker compose $rollback_files config >/dev/null
+  docker compose "${rollback_files[@]}" config >/dev/null
   if [ -f docker-compose.open-webui-theme.yml ]; then
-    docker compose $rollback_files pull open-webui-theme || true
-    docker compose $rollback_files up -d open-webui-theme caddy
+    docker compose "${rollback_files[@]}" pull open-webui-theme || true
+    docker compose "${rollback_files[@]}" up -d open-webui-theme caddy
   else
-    docker compose $rollback_files up -d caddy
+    docker compose "${rollback_files[@]}" up -d caddy
   fi
   docker exec caddy caddy validate --config /etc/caddy/Caddyfile
   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
@@ -211,12 +211,12 @@ block = f'''{domain} {{
 path.write_text(text.rstrip() + "\n\n" + block)
 PY
 
-docker compose $compose_files config >/dev/null
-docker compose $compose_files pull open-webui-theme
-docker compose $compose_files up -d open-webui-theme caddy
+docker compose "${compose_files[@]}" config >/dev/null
+docker compose "${compose_files[@]}" pull open-webui-theme
+docker compose "${compose_files[@]}" up -d open-webui-theme caddy
 docker exec caddy caddy validate --config /etc/caddy/Caddyfile
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
-docker compose $compose_files ps open-webui-theme caddy
+docker compose "${compose_files[@]}" ps open-webui-theme caddy
 health_check
 
 trap - ERR
