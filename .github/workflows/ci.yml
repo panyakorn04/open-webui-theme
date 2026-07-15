@@ -1,4 +1,4 @@
-name: CI and Deploy Open WebUI Theme
+name: CI
 
 on:
   pull_request:
