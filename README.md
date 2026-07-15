@@ -2,7 +2,7 @@
 
 [![CI and Deploy Open WebUI Theme](https://github.com/panyakorn04/open-webui-theme/actions/workflows/deploy-vps.yml/badge.svg)](https://github.com/panyakorn04/open-webui-theme/actions/workflows/deploy-vps.yml)
 
-A standalone, responsive AI console for Panyakorn's private Ollama stack. The interface combines a Claude-style workspace with the dark emerald visual language of [panyakorn.com](https://panyakorn.com), while chat requests flow through `portfolio-backend-2026` instead of exposing Ollama directly.
+A standalone, responsive AI console for Panyakorn's VPS-hosted AI stack. The interface combines a Claude-style workspace with the dark emerald visual language of [panyakorn.com](https://panyakorn.com), while chat requests flow through `portfolio-backend-2026` instead of exposing a model provider directly.
 
 - Production: [https://chat.panyakorn.com](https://chat.panyakorn.com)
 - Repository: [https://github.com/panyakorn04/open-webui-theme](https://github.com/panyakorn04/open-webui-theme)
@@ -12,7 +12,7 @@ A standalone, responsive AI console for Panyakorn's private Ollama stack. The in
 ## What is shipped
 
 - Streaming AI chat powered by TanStack AI and the backend SSE endpoint.
-- Automatic JSON fallback when the streaming endpoint is unavailable.
+- Automatic JSON fallback when streaming returns `404`, `405`, `415`, `501`, or no response body.
 - Runtime model selection from the configured `NEXT_PUBLIC_AI_MODELS` list.
 - Per-message model labels and visible connection, loading, stop, timeout, and error states.
 - Local conversation history with create, reopen, and delete actions.
@@ -43,14 +43,14 @@ Caddy on chat.panyakorn.com
            │
            ▼
 portfolio-backend-2026
-  ├─ validates the request and selected model
-  └─ calls internal Ollama
+  ├─ owns request validation and model policy
+  └─ owns the model-provider integration
            │
            ▼
-http://ollama:11434 (private Docker network only)
+Model provider (must remain behind the backend boundary)
 ```
 
-In production, `NEXT_PUBLIC_API_URL` is intentionally empty so the browser uses same-origin `/api/...` paths. Caddy owns the public routing boundary; Ollama remains internal and is never exposed directly.
+In production, `NEXT_PUBLIC_API_URL` is intentionally empty so the browser uses same-origin `/api/...` paths. This repository configures Caddy's public routing boundary through its deployment script; the backend repository and production Compose configuration own downstream model validation, provider routing, and network isolation.
 
 ## Technology
 
@@ -72,7 +72,7 @@ In production, `NEXT_PUBLIC_API_URL` is intentionally empty so the browser uses 
 - Bun 1.3.14
 - Node-compatible environment for Next.js tooling
 - A compatible backend exposing the chat endpoints described below
-- Docker and Docker Compose only when building or operating the production container locally
+- Docker for the optional local container flow; Docker Compose for the VPS deployment topology
 
 ## Local development
 
@@ -85,7 +85,7 @@ bun run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The default configuration calls same-origin endpoints. For local backend and model-menu testing:
+The default configuration renders the UI but local chat calls same-origin endpoints that this frontend does not implement. Start a compatible backend separately, then configure its public base URL for chat and model-menu testing:
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8888 \
@@ -93,7 +93,7 @@ NEXT_PUBLIC_AI_MODELS=panyakorn-local:latest,qwen2.5-coder:7b,llama3.2:3b \
 bun run dev
 ```
 
-There is no committed `.env.example`; both supported variables are optional and have safe defaults.
+When the backend runs on a different origin, it must allow browser requests from `http://localhost:3000` through its CORS policy. Alternatively, place a same-origin development reverse proxy in front of both services. There is no committed `.env.example`; both variables are optional for rendering the UI, but a reachable backend is required for working chat.
 
 ## Environment contract
 
@@ -229,7 +229,7 @@ The `CI and Deploy Open WebUI Theme` workflow runs on pull requests, pushes to `
 4. Push the scanned image to GHCR.
 5. Verify production DNS before connecting to the VPS.
 6. Deploy over pinned-host-key native SSH using a short-lived GHCR token.
-7. Update the Compose overlay and Caddy route, then validate and reload Caddy.
+7. Update the Compose overlay and Caddy route, start/recreate the application and Caddy services, then validate and reload Caddy.
 8. Check container reachability, public TLS, the two allowlisted API routes, and the `/api/*` deny boundary.
 9. Roll back Compose, Caddy, and the previous immutable image if deployment or health checks fail.
 10. Retain recent images, prune old layers, set the commit status, and optionally notify Discord.
@@ -279,17 +279,18 @@ Dockerfile                   # Multi-stage standalone production image
 ## Security boundaries
 
 - The frontend has no authentication and must not receive private credentials.
+- The two chat routes are publicly reachable at the Caddy edge. The backend must enforce the intended access policy plus rate limits, payload/token limits, model allowlists, and other resource controls before forwarding expensive inference requests.
 - `NEXT_PUBLIC_*` values are public build-time configuration.
 - The backend, not the model selector, is responsible for model authorization and request validation.
 - Caddy exposes only `/api/ai/chat` and `/api/ai/chat/stream`; other `/api/*` paths return `404`.
-- Ollama stays on the private Docker network at `ollama:11434`.
+- Any Ollama or other model-provider endpoint must remain behind the backend boundary and must not be exposed directly by this frontend deployment.
 - GHCR credentials are held in a temporary Docker config and removed after deployment.
 - SSH host verification is pinned through `VPS_HOST_KEY`.
 - Conversation content remains in each browser's `localStorage`; clearing site data removes it.
 
 ## Related project
 
-- [`portfolio-backend-2026`](https://github.com/panyakorn04/portfolio-backend-2026) — backend chat API, model policy, and internal Ollama adapter.
+- [`portfolio-backend-2026`](https://github.com/panyakorn04/portfolio-backend-2026) — separate backend repository serving the production chat routes.
 
 ## License
 
