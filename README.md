@@ -1,6 +1,6 @@
 # Open WebUI Theme
 
-[![CI and Deploy Open WebUI Theme](https://github.com/panyakorn04/open-webui-theme/actions/workflows/deploy-vps.yml/badge.svg)](https://github.com/panyakorn04/open-webui-theme/actions/workflows/deploy-vps.yml)
+[![CI and Deploy Open WebUI Theme](https://github.com/panyakorn04/open-webui-theme/actions/workflows/ci.yml/badge.svg)](https://github.com/panyakorn04/open-webui-theme/actions/workflows/ci.yml)
 
 A standalone, responsive AI console for Panyakorn's VPS-hosted AI stack. The interface combines a Claude-style workspace with the dark emerald visual language of [panyakorn.com](https://panyakorn.com), while chat requests flow through `portfolio-backend-2026` instead of exposing a model provider directly.
 
@@ -74,11 +74,12 @@ In production, `NEXT_PUBLIC_API_URL` is intentionally empty so the browser uses 
 - A compatible backend exposing the chat endpoints described below
 - Docker for the optional local container flow; Docker Compose for the VPS deployment topology
 
-## Local development
+## Getting started
 
 ```bash
 git clone https://github.com/panyakorn04/open-webui-theme.git
 cd open-webui-theme
+cp .env.example .env
 bun install
 bun run dev
 ```
@@ -209,6 +210,17 @@ docker run --rm -p 3000:3000 open-webui-theme:local
 
 The Dockerfile pins both base-image digests, caches Bun downloads with BuildKit, builds the application with Bun, and copies only Next.js standalone output into a minimal Node 22 Alpine runtime. The final container runs as the unprivileged `nextjs` user, does not include npm or npx, handles `SIGTERM`, and exposes a Node-based HTTP health check without adding curl to the runtime image.
 
+### Production deployment topology
+
+This repository ships reference templates for the VPS deployment:
+
+| File | Purpose |
+| --- | --- |
+| `docker-compose.template.yml` | Base Compose file — Caddy reverse proxy + backend + the Next.js app (overlaid by CI) |
+| `caddy/Caddyfile.template` | Caddy route config — proxies `/api/ai/chat` routes to the backend and blocks other `/api/*` paths |
+
+Copy these to your VPS, adjust the domain and secrets, and the CI workflow handles the rest via `docker-compose.open-webui-theme.yml` overlay.
+
 ## CI/CD
 
 The `CI and Deploy Open WebUI Theme` workflow runs on pull requests, pushes to `main`, and manual dispatches.
@@ -256,25 +268,32 @@ On the VPS, the deployment user must be able to read `/opt/apps/.env`, write the
 ## Project structure
 
 ```text
-app/
-├── _components/             # Workspace, sidebar, composer, messages, context UI
-├── _hooks/                  # Chat state, auto-scroll, and responsive drawer behavior
-├── error.tsx                # App Router error boundary
-├── loading.tsx              # Route loading state
-├── layout.tsx               # Fonts and metadata
-├── page.tsx                 # Minimal workspace composition entry
-└── globals.css              # Dark emerald responsive design system
-lib/
-├── backend-chat-fetcher.ts  # SSE client, timeout, model forwarding, JSON fallback
-├── chat-sessions.ts         # Versioned local persistence and cross-tab merge helpers
-├── chat-message-utils.ts    # Message text/title utilities
-├── version.ts               # Package-version export
-└── *.test.ts                # Bun unit tests
-.github/
-├── scripts/                 # VPS deployment and rollback script
-└── workflows/               # Validation, image publishing, and production deployment
-.githooks/                   # Version bump and pre-push verification
-Dockerfile                   # Multi-stage standalone production image
+./
+├── .env.example              # Environment variable template
+├── AGENTS.md                 # Repository agent instructions
+├── app/                      # Next.js App Router pages and components
+│   ├── _components/          # Workspace, sidebar, composer, messages, context UI
+│   ├── _hooks/               # Chat state, auto-scroll, and responsive drawer behavior
+│   ├── error.tsx             # App Router error boundary
+│   ├── loading.tsx           # Route loading state
+│   ├── layout.tsx            # Fonts and metadata
+│   ├── page.tsx              # Minimal workspace composition entry
+│   └── globals.css           # Dark emerald responsive design system
+├── caddy/
+│   └── Caddyfile.template    # Caddy reverse proxy configuration template
+├── docker-compose.template.yml  # Production Compose topology template
+├── lib/                      # Shared library modules
+│   ├── backend-chat-fetcher.ts  # SSE client, timeout, model forwarding, JSON fallback
+│   ├── chat-sessions.ts         # Versioned local persistence and cross-tab merge helpers
+│   ├── chat-message-utils.ts    # Message text/title utilities
+│   ├── version.ts               # Package-version export
+│   └── *.test.ts                # Bun unit tests
+├── .github/
+│   ├── scripts/                 # VPS deployment and rollback script
+│   └── workflows/               # CI pipeline (ci.yml)
+├── .githooks/                   # Version bump and pre-push verification
+├── Dockerfile                   # Multi-stage standalone production image
+└── package.json
 ```
 
 ## Security boundaries

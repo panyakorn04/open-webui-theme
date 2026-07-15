@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────
+# Caddyfile — Open WebUI Theme production reverse proxy
+# 
+# Copy this file to caddy/Caddyfile on the VPS and replace
+# chat.panyakorn.com with your actual domain.
+#
+# The CI deploy script updates the domain block dynamically
+# when PUBLISH_DOMAIN changes.
+# ─────────────────────────────────────────────────────────────────────
+
+chat.panyakorn.com {
+  # Allow only the two public chat API routes
+  @public_chat path /api/ai/chat /api/ai/chat/stream
+  handle @public_chat {
+    reverse_proxy backend:8888
+  }
+
+  # Block all other /api/* paths
+  handle /api/* {
+    respond "Not Found" 404
+  }
+
+  # Everything else → Next.js frontend
+  handle {
+    reverse_proxy open-webui-theme:3000
+  }
+}

@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────
+# Open WebUI Theme — production deployment topology
+# 
+# Usage:
+#   1. Copy this file to docker-compose.yml on the VPS
+#   2. Create an overlay docker-compose.open-webui-theme.yml
+#      (generated automatically by the CI deploy script)
+#   3. Configure caddy/Caddyfile with your domain
+#   4. Ensure .env exists with required secrets
+#
+# The CI workflow pushes an immutable image to GHCR and writes
+# docker-compose.open-webui-theme.yml on the VPS at deploy time.
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app_net
+    depends_on:
+      - backend
+      - open-webui-theme
+
+  backend:
+    image: ghcr.io/panyakorn04/portfolio-backend-2026:latest
+    container_name: backend
+    restart: unless-stopped
+    expose:
+      - "8888"
+    env_file:
+      - .env
+    networks:
+      - app_net
+
+  # open-webui-theme is added by the CI deploy script via
+  # docker-compose.open-webui-theme.yml overlay.
+  # Its image, environment, and version are managed by the pipeline.
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
